@@ -10,7 +10,7 @@ from django.contrib.auth.hashers import check_password
 from audit.models import AuditLog
 from .models import (
     Organizations, OrganizationSettings, Subscriptions, Branch,
-    ExamSettings, LandingPage, LandingPageSubmission, SuperAdmin
+    ExamSettings, LandingPage, SuperAdmin
 )
 from rest_framework.permissions import AllowAny
 from .models import SuperAdmin

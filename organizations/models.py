@@ -300,4 +300,3 @@ class LandingPage(models.Model):
         super().save(*args, **kwargs)
 
 
-
