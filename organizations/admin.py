@@ -1,9 +1,8 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from core.admin import BaseModelAdmin
 from .models import (
     Organizations, Branch, Subscriptions, OrganizationSettings, 
-    ExamSettings, Section, LandingPage, LandingPageSubmission, SuperAdmin
+    ExamSettings, Section, LandingPage, SuperAdmin
 )
 from accounts.models import Employee
 
@@ -94,13 +93,6 @@ class LandingPageAdmin(admin.ModelAdmin):
     def view_link(self, obj):
         return format_html('<a href="/lp/{}" target="_blank">🔗 Sahifani ochish</a>', obj.slug)
     view_link.short_description = "Link"
-
-@admin.register(LandingPageSubmission)
-class LandingPageSubmissionAdmin(admin.ModelAdmin):
-    list_display = ['full_name', 'phone', 'landing_page', 'branch', 'created_at']
-    list_filter = ['landing_page__organization', 'branch', 'created_at']
-    readonly_fields = ['full_name', 'phone', 'comment', 'landing_page', 'branch', 'source']
-    search_fields = ['full_name', 'phone']
 
 @admin.register(SuperAdmin)
 class SuperAdminAdmin(admin.ModelAdmin):

@@ -29,14 +29,8 @@ urlpatterns = [
     path('organizations/<uuid:org_pk>/landing-statistics/', views.landing_statistics, name='landing-statistics'),
 
     # Landing Page Submissions (Admin)
-    path('organizations/<uuid:org_pk>/landing-pages/<int:page_pk>/submissions/', views.submission_list_create,
-         name='submission-list-create'),
-    path('organizations/<uuid:org_pk>/landing-pages/<int:page_pk>/submissions/<int:pk>/', views.submission_detail,
-         name='submission-detail'),
-
     # Public Endpoints (talabalar uchun)
     path('landing/<slug:slug>/', views.landing_page_by_slug, name='landing-page-by-slug'),
-    path('landing/<slug:slug>/submit/', views.public_submission_create, name='public-submission-create'),
 
     # Billing Dashboard
     path('organizations/<uuid:org_pk>/billing/', views.billing_dashboard, name='billing-dashboard'),

@@ -21,7 +21,6 @@ from .serializers import (
     BranchSerializer, ExamSettingsSerializer,
     BillingSubscriptionSerializer, BillingCreateSerializer,
     LandingPageSerializer, LandingPageCreateSerializer,
-    LandingPageSubmissionSerializer, LandingPageSubmissionCreateSerializer,
     SuperAdminSerializer
 )
 
@@ -480,64 +479,6 @@ def landing_page_detail(request, org_pk, pk):
 def landing_page_by_slug(request, slug):
     page = get_object_or_404(LandingPage, slug=slug, is_active=True)
     return Response(LandingPageSerializer(page).data)
-
-
-# ════════════════════════════════════════════════════════════════
-#  LANDING PAGE SUBMISSIONS
-# ════════════════════════════════════════════════════════════════
-
-@api_view(['GET', 'POST'])
-def submission_list_create(request, org_pk, page_pk):
-    page = get_object_or_404(LandingPage, pk=page_pk, organization__pk=org_pk)
-
-    if request.method == 'GET':
-        submissions = LandingPageSubmission.objects.filter(landing_page=page)
-        return Response(LandingPageSubmissionSerializer(submissions, many=True).data)
-
-    serializer = LandingPageSubmissionCreateSerializer(data=request.data)
-    if serializer.is_valid():
-        sub = serializer.save(landing_page=page)
-
-        _log('other', sub.id, 'create', None, {
-            'action':    'Submission yaratildi',
-            'full_name': sub.full_name,
-            'phone':     sub.phone,
-        }, request.user)
-
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['POST'])
-def public_submission_create(request, slug):
-    """Public endpoint — talabalar ro'yxatdan o'tishi (AuditLog shart emas)"""
-    page = get_object_or_404(LandingPage, slug=slug, is_active=True)
-    serializer = LandingPageSubmissionCreateSerializer(data=request.data)
-    if serializer.is_valid():
-        serializer.save(landing_page=page)
-        return Response({
-            'message': "Arizangiz qabul qilindi! Tez orada siz bilan bog'lanamiz.",
-            'data':    serializer.data,
-        }, status=status.HTTP_201_CREATED)
-    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['GET', 'DELETE'])
-def submission_detail(request, org_pk, page_pk, pk):
-    submission = get_object_or_404(
-        LandingPageSubmission, pk=pk,
-        landing_page__pk=page_pk, landing_page__organization__pk=org_pk,
-    )
-
-    if request.method == 'GET':
-        return Response(LandingPageSubmissionSerializer(submission).data)
-
-    _log('other', submission.id, 'delete', {
-        'full_name': submission.full_name, 'phone': submission.phone,
-    }, None, request.user)
-    submission.delete()
-    return Response(status=status.HTTP_204_NO_CONTENT)
-
 
 # ════════════════════════════════════════════════════════════════
 #  STATISTIKA

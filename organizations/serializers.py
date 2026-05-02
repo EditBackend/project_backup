@@ -1,6 +1,6 @@
 from .models import Organizations,Subscriptions,Branch,OrganizationSettings,ExamSettings
 from rest_framework import serializers
-from .models import LandingPage, LandingPageSubmission,SuperAdmin
+from .models import LandingPage,SuperAdmin
 from datetime import datetime, timedelta
 from django.db import transaction
 
@@ -128,19 +128,6 @@ class LandingPageCreateSerializer(serializers.ModelSerializer):
         return value
 
 
-class LandingPageSubmissionSerializer(serializers.ModelSerializer):
-    landing_page_name = serializers.CharField(source='landing_page.name', read_only=True)
-
-    class Meta:
-        model = LandingPageSubmission
-        fields = '__all__'
-        read_only_fields = ('branch', 'source', 'created_at')
-
-
-class LandingPageSubmissionCreateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LandingPageSubmission
-        fields = '__all__'
 
 
 class BillingSubscriptionSerializer(serializers.ModelSerializer):
