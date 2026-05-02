@@ -10,7 +10,7 @@ from django.contrib.auth.hashers import check_password
 from audit.models import AuditLog
 from .models import (
     Organizations, OrganizationSettings, Subscriptions, Branch,
-    ExamSettings, LandingPage, LandingPageSubmission, Tag,SuperAdmin
+    ExamSettings, LandingPage, LandingPageSubmission, SuperAdmin
 )
 from rest_framework.permissions import AllowAny
 from .models import SuperAdmin
@@ -22,7 +22,7 @@ from .serializers import (
     BillingSubscriptionSerializer, BillingCreateSerializer,
     LandingPageSerializer, LandingPageCreateSerializer,
     LandingPageSubmissionSerializer, LandingPageSubmissionCreateSerializer,
-    TagSerializer,SuperAdminSerializer
+    SuperAdminSerializer
 )
 
 from accounts.models import User
@@ -660,42 +660,5 @@ def billing_current(request, org_pk):
 
     return Response(BillingSubscriptionSerializer(current_sub).data)
 
-
-# ════════════════════════════════════════════════════════════════
-#  TAGS
-# ════════════════════════════════════════════════════════════════
-
-class TagListCreateView(generics.ListCreateAPIView):
-    queryset         = Tag.objects.all()
-    serializer_class = TagSerializer
-
-    def get_queryset(self):
-        object_type = self.request.query_params.get('object_type')
-        if object_type:
-            return self.queryset.filter(object_type=object_type)
-        return self.queryset
-
-    def perform_create(self, serializer):
-        tag = serializer.save()
-        _log('other', tag.id, 'create', None, {
-            'action':      'Tag yaratildi',
-            'name':        tag.name,
-            'object_type': tag.object_type,
-        }, self.request.user)
-
-
-class TagRetrieveUpdateDeleteView(generics.RetrieveUpdateDestroyAPIView):
-    queryset         = Tag.objects.all()
-    serializer_class = TagSerializer
-
-    def perform_update(self, serializer):
-        old = {'name': serializer.instance.name}
-        tag = serializer.save()
-        _log('other', tag.id, 'update', old, {'name': tag.name}, self.request.user)
-
-    def perform_destroy(self, instance):
-        _log('other', instance.id, 'delete', {'name': instance.name, 'object_type': instance.object_type},
-             None, self.request.user)
-        instance.delete()
 
 

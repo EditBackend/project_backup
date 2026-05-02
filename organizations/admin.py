@@ -3,7 +3,7 @@ from django.utils.html import format_html
 from core.admin import BaseModelAdmin
 from .models import (
     Organizations, Branch, Subscriptions, OrganizationSettings, 
-    ExamSettings, Section, LandingPage, LandingPageSubmission, Tag, SuperAdmin
+    ExamSettings, Section, LandingPage, LandingPageSubmission, SuperAdmin
 )
 from accounts.models import Employee
 
@@ -106,16 +106,6 @@ class LandingPageSubmissionAdmin(admin.ModelAdmin):
 class SuperAdminAdmin(admin.ModelAdmin):
     list_display = ['username', 'first_name', 'last_name', 'phone', 'is_active']
     list_editable = ['is_active']
-
-@admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
-    list_display = ['name', 'object_type_badge']
-    list_filter = ['object_type']
-
-    def object_type_badge(self, obj):
-        colors = {'student': '#3498db', 'group': '#9b59b6', 'lead': '#e67e22'}
-        return format_html('<span style="color: {}; font-weight: bold;"># {}</span>', colors.get(obj.object_type, 'black'), obj.get_object_type_display())
-    object_type_badge.short_description = "Tur"
 
 # Qolgan sodda modullar
 admin.site.register([Section, Branch, Subscriptions])

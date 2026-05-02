@@ -4,6 +4,7 @@ from django.utils.text import slugify
 from core.validators import uz_phone_validator
 from core.models import BaseModel
 
+# BU joyda yangilanishlar bo'lmoqda xushyor bolib kuzatish kerka.
 
 class SuperAdmin(models.Model):
     username = models.CharField(max_length=255, unique=True)
@@ -355,20 +356,6 @@ class LandingPageSubmission(models.Model):
         if not self.source:
             self.source = self.landing_page.source
         super().save(*args, **kwargs)
-
-class Tag(BaseModel):
-    OBJECT_TYPE = (
-        ("student", "Student"),
-        ("group", "Group"),
-        ("lead", "Lead"),
-    )
-
-    name = models.CharField(max_length=100)
-    object_type = models.CharField(max_length=20, choices=OBJECT_TYPE)
-
-    def __str__(self):
-        return f"{self.name} ({self.object_type})"
-
 
 
 

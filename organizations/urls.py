@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import TagListCreateView, TagRetrieveUpdateDeleteView,SuperAdminCreateView, SuperAdminLoginView,OrganizationJoinView
+from .views import SuperAdminCreateView, SuperAdminLoginView,OrganizationJoinView
 
 urlpatterns = [
     path('superadmin/register/', SuperAdminCreateView.as_view(), name='register'),
@@ -52,7 +52,6 @@ urlpatterns = [
 
     # Tariflar ro'yxati (Public)
     path('billing/plans/', views.billing_plans, name='billing-plans'),
-    path("tags/", TagListCreateView.as_view(), name="tag-list-create"),
-    path("tags/<uuid:pk>/", TagRetrieveUpdateDeleteView.as_view(), name="tag-detail"),
+
 
 ]

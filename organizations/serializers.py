@@ -1,10 +1,8 @@
-from .models import Organizations,Subscriptions,Branch,OrganizationSettings,ExamSettings,Tag
+from .models import Organizations,Subscriptions,Branch,OrganizationSettings,ExamSettings
 from rest_framework import serializers
 from .models import LandingPage, LandingPageSubmission,SuperAdmin
 from datetime import datetime, timedelta
 from django.db import transaction
-from django.utils import timezone
-from django.contrib.auth.hashers import make_password
 
 class SuperAdminSerializer(serializers.ModelSerializer):
     class Meta:
@@ -204,9 +202,3 @@ class BillingStatsSerializer(serializers.Serializer):
     status = serializers.CharField()
 
 
-
-
-class TagSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Tag
-        fields = '__all__'
