@@ -55,20 +55,6 @@ class OrganizationJoinView(APIView):
         })
 
 # 1. SuperAdmin yaratish (POST)
-class SuperAdminCreateView(APIView):
-    permission_classes = [AllowAny]
-    def post(self, request):
-        serializer = SuperAdminSerializer(data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            return Response({
-                "success": True,
-                "message": "SuperAdmin muvaffaqiyatli yaratildi"
-            }, status=status.HTTP_201_CREATED)
-        return Response({
-            "success": False,
-            "error": serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
 
 # 2. Login (POST)
 from rest_framework_simplejwt.tokens import RefreshToken # JWT uchun
