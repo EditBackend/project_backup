@@ -6,6 +6,7 @@ from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.db.models import Sum, Q, Count
 from datetime import datetime, timedelta
+from rest_framework import status
 
 from audit.models import AuditLog
 from .models import (
@@ -640,32 +641,67 @@ class TeacherSalaryRulesViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def bulk_create(self, request):
-        percent        = request.data.get('percent_per_student')
-        fixed_bonus    = request.data.get('fixed_bonus')
+        percent = request.data.get('percent_per_student')
+        fixed_bonus = request.data.get('fixed_bonus')
         effective_from = request.data.get('effective_from')
-        effective_to   = request.data.get('effective_to')
+        effective_to = request.data.get('effective_to')
 
+        # 1. Ma'lumotlar to'liqligini tekshirish
         if not all([percent, fixed_bonus, effective_from, effective_to]):
-            return Response({'error': 'Barcha maydonlar majburiy'}, status=400)
+            return Response({'error': 'Barcha maydonlar (percent, fixed_bonus, dates) majburiy!'}, status=400)
 
-        teachers      = Employee.objects.filter(position__icontains="o'qituvchi")
+        # 2. O'qituvchilarni qidirish (Lotin/Kirill variantlari bilan)
+        teachers = Employee.objects.filter(
+            Q(position__icontains="o'qituvchi") |
+            Q(position__icontains="o‘qituvchi") |
+            Q(position__icontains="teacher")
+        )
+
+        if not teachers.exists():
+            return Response({'error': 'Belgilangan lavozimdagi o\'qituvchilar topilmadi.'}, status=404)
+
         created_count = 0
-        for teacher in teachers:
-            TeacherSalaryRules.objects.create(
-                teacher=teacher, percent_per_student=percent,
-                fixed_bonus=fixed_bonus, effective_from=effective_from, effective_to=effective_to,
-            )
-            created_count += 1
 
-        _log('other', None, 'create', None, {
-            'action':              'Bulk teacher salary rules yaratildi',
-            'created_count':       created_count,
-            'percent_per_student': percent,
-            'fixed_bonus':         fixed_bonus,
-        }, request.user)
+        try:
+            with transaction.atomic(): # Xatolik bo'lsa barchasini qaytaradi
+                for teacher in teachers:
+                    # 3. Har bir xodimning o'z branch va organization ID'larini olish
+                    # TeacherSalaryRules BaseModel'dan meros olgani uchun bular shart!
+                    TeacherSalaryRules.objects.create(
+                        teacher=teacher,
+                        percent_per_student=percent,
+                        fixed_bonus=fixed_bonus,
+                        effective_from=effective_from,
+                        effective_to=effective_to,
+                        branch_id=teacher.branch_id,       # MUHIM
+                        organization_id=teacher.organization_id # MUHIM
+                    )
+                    created_count += 1
 
-        return Response({'message': f'{created_count} ta ustoz uchun qoidalar yaratildi',
-                         'percent_per_student': percent, 'fixed_bonus': fixed_bonus})
+                # 4. AuditLog yozish
+                _log('other', None, 'create', None, {
+                    'action': 'Bulk teacher salary rules yaratildi',
+                    'created_count': created_count,
+                    'percent_per_student': str(percent),
+                    'fixed_bonus': str(fixed_bonus),
+                    'period': f"{effective_from} - {effective_to}"
+                }, request.user)
+
+        except IntegrityError as e:
+            return Response({'error': f'Ma\'lumotlar bazasiga saqlashda xato: {str(e)}'}, status=400)
+        except Exception as e:
+            return Response({'error': f'Kutilmagan xatolik: {str(e)}'}, status=500)
+
+        return Response({
+            'success': True,
+            'message': f'{created_count} ta ustoz uchun qoidalar muvaffaqiyatli yaratildi.',
+            'data': {
+                'percent': percent,
+                'fixed_bonus': fixed_bonus,
+                'effective_from': effective_from,
+                'effective_to': effective_to
+            }
+        }, status=201)
 
     @extend_schema(request=PayPeriodSerializer, responses={200: TeacherSalaryRulesSerializer(many=True)})
     @action(detail=False, methods=['post'])
@@ -684,22 +720,27 @@ class TeacherSalaryRulesViewSet(viewsets.ModelViewSet):
     def configure_period(self, request):
         serializer = BulkSalaryConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        data    = serializer.validated_data
-        start   = data['start_date']
-        end     = data['end_date']
-        percent = data['percent_per_student']
-        fixed   = data['fixed_bonus']
+        data = serializer.validated_data
 
         if data['apply_to_all']:
-            teachers = Employee.objects.filter(position__icontains="o'qituvchi")
-            created  = []
-            for teacher in teachers:
-                rule = TeacherSalaryRules.objects.create(
-                    teacher=teacher, percent_per_student=percent,
-                    fixed_bonus=fixed, effective_from=start, effective_to=end,
-                )
-                created.append(rule)
-
+            # O'qituvchilarni kengaytirilgan filtr bilan olish
+            teachers = Employee.objects.filter(
+                Q(position__icontains="o'qituvchi") | Q(position__icontains="o‘qituvchi")
+            )
+            created = []
+            with transaction.atomic():
+                for teacher in teachers:
+                    rule = TeacherSalaryRules.objects.create(
+                        teacher=teacher,
+                        percent_per_student=data['percent_per_student'],
+                        fixed_bonus=data['fixed_bonus'],
+                        effective_from=data['start_date'],
+                        effective_to=data['end_date'],
+                        # MANA BU QATORLARNI QO'SHING
+                        branch_id=teacher.branch_id,
+                        organization_id=teacher.organization_id
+                    )
+                    created.append(rule)
             _log('other', None, 'create', None, {
                 'action':              'configure_period - bulk sozlama',
                 'created_count':       len(created),
@@ -711,7 +752,7 @@ class TeacherSalaryRulesViewSet(viewsets.ModelViewSet):
             return Response({'message': f'{len(created)} ta ustoz uchun sozlamalar yaratildi',
                              'period': f'{start} - {end}', 'percent_per_student': percent,
                              'fixed_bonus': fixed, 'created_count': len(created)})
-        return Response({'error': "apply_to_all=false qo'llab-quvvatlanmaydi"}, status=400)
+        return Response({'success': True, 'created_count': len(created)})
 
     @action(detail=False, methods=['get'])
     def active_periods(self, request):

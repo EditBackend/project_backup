@@ -1,5 +1,3 @@
-from core.models import BaseModel
-from core.models import BaseModel
 from accounts.models import Employee  # yoki qayerda bo'lsa
 from academics.models.group import Course
 from django.db import models
@@ -11,12 +9,19 @@ from django.conf import settings
 
 class ExpenseCategory(BaseModel):
     name = models.CharField(max_length=250)
+    expense_type = models.ForeignKey('DetailedExpense', on_delete=models.SET_NULL,null=True,blank=True,related_name="expense_categories",   # <--- BU YERNI O'ZGARTIRDINGIZ
+        verbose_name="Xarajat turi")
 
 class Expenses(BaseModel):
     category = models.ForeignKey(ExpenseCategory, on_delete=models.SET_NULL, null=True, related_name="category")
     amount = models.DecimalField(max_digits=12, decimal_places=2)
     expense_date = models.DateTimeField()
     comment = models.TextField()
+
+
+    recipient = models.CharField(max_length=255, null=True, blank=True, verbose_name="Oluvchi")
+    payment_type = models.CharField(max_length=50, choices=[('cash', 'Naqd'), ('card', 'Plastik')], default='cash')
+    name = models.CharField(max_length=255, null=True, blank=True, verbose_name="Xarajat nomi")
 
 class MonthlyIncome(BaseModel):
     month = models.DateField()
@@ -64,8 +69,8 @@ class DetailedExpense(BaseModel):
         ('to\'lov_turi', "To'lov turi"),
         ('summa', 'Summa'),
     )
-    subcategory = models.ForeignKey(ExpenseSubcategory, on_delete=models.CASCADE, related_name='detailed_expenses')
-    expense_type = models.CharField(max_length=50, choices=EXPENSE_TYPES)
+    subcategory = models.ForeignKey(ExpenseSubcategory, on_delete=models.CASCADE, related_name='detailed_expenses',null=True, blank=True)
+    expense_type = models.CharField(max_length=50, choices=EXPENSE_TYPES,null=True, blank=True)
     name = models.CharField(max_length=255, blank=True, null=True)
     amount = models.DecimalField(max_digits=12, decimal_places=2, blank=True, null=True)
     payment_type = models.ForeignKey(Payment, on_delete=models.SET_NULL, null=True, blank=True)

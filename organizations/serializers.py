@@ -1,8 +1,24 @@
 from .models import Organizations,Subscriptions,Branch,OrganizationSettings,ExamSettings,Tag
 from rest_framework import serializers
-from .models import LandingPage, LandingPageSubmission
+from .models import LandingPage, LandingPageSubmission,SuperAdmin
 from datetime import datetime, timedelta
+from django.db import transaction
+from django.utils import timezone
+from django.contrib.auth.hashers import make_password
 
+class SuperAdminSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SuperAdmin
+        fields = ['id', 'username', 'first_name', 'last_name', 'phone', 'address', 'password', 'is_active']
+        extra_kwargs = {
+            'password': {'write_only': True},
+            'id': {'read_only': True}
+        }
+
+    def create(self, validated_data):
+# hash qilish
+        validated_data['password'] = make_password(validated_data['password'])
+        return super().create(validated_data)
 
 
 class OrganizationSettingsSerializer(serializers.ModelSerializer):
@@ -11,27 +27,60 @@ class OrganizationSettingsSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
+class BranchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Branch
+        fields = ['id', 'name', 'address', 'phone', 'is_active']
 
 class OrganizationSerializer(serializers.ModelSerializer):
     settings = OrganizationSettingsSerializer(read_only=True)
 
+    # MUHIM QISMI: Modelingizdagi related_name="branches" orqali ulaymiz
+    branches = BranchSerializer(many=True, read_only=True)
+
     class Meta:
         model = Organizations
-        fields = ['id', 'name', 'logo', 'address', 'phone', 'status', 'created_at', 'settings']
+        # fields ichiga 'branches' ni qo'shishni unutmang
+        fields = [
+            'id', 'name', 'logo', 'address', 'phone', 'status',
+            'settings', 'branches', 'work_start_time', 'work_end_time',
+            'created_at', 'updated_at'
+        ]
         read_only_fields = ('created_at',)
 
 
+from accounts.models import Employee
+from django.contrib.auth.hashers import make_password
+from accounts.models import User, Employee
+
 class OrganizationCreateSerializer(serializers.ModelSerializer):
+    branch_id = serializers.SerializerMethodField(read_only=True)
+
     class Meta:
         model = Organizations
-        fields = ['name', 'logo', 'address', 'phone', 'status']
+        fields = ['id', 'name', 'phone', 'address', 'branch_id']
 
+    def get_branch_id(self, obj):
+        branch = Branch.objects.filter(organization=obj).first()
+        return branch.id if branch else None
+
+    # organizations/serializers.py ichidagi create metodi
     def create(self, validated_data):
-        organization = Organizations.objects.create(**validated_data)
-        # Avtomatik sozlamalar yaratish (default qiymatlar bilan)
-        OrganizationSettings.objects.create(organization=organization)
-        return organization
+        # ... (tashkilot yaratish qismi) ...
+        with transaction.atomic():
+            organization = Organizations.objects.create(**validated_data)
 
+            # Filial yaratishdan oldin raqamni tekshiramiz
+            branch_phone = validated_data.get('phone')
+
+            # Agar bu raqamli Branch bazada bo'lmasa, keyin yaratadi
+            if not Branch.objects.filter(phone=branch_phone).exists():
+                Branch.objects.create(
+                    name=f"{organization.name} - Asosiy filial",
+                    organization=organization,
+                    phone=branch_phone
+                )
+            return organization
 
 class SubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -40,11 +89,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         read_only_fields = ('created_at',)
 
 
-class BranchSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Branch
-        fields = '__all__'
-        read_only_fields = ('created_at',)
+
 
 class ExamSettingsSerializer(serializers.ModelSerializer):
     class Meta:
@@ -62,11 +107,7 @@ class LandingPageSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LandingPage
-        fields = [
-            'id', 'organization', 'name', 'slug', 'branch', 'section',
-            'source', 'is_active', 'submissions_count', 'full_url',
-            'created_at', 'updated_at'
-        ]
+        fields = '__all__'
         read_only_fields = ('organization', 'created_at', 'updated_at')
 
     def get_submissions_count(self, obj):
@@ -80,7 +121,7 @@ class LandingPageSerializer(serializers.ModelSerializer):
 class LandingPageCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = LandingPage
-        fields = ['name', 'slug', 'branch', 'section', 'source', 'is_active']
+        fields = '__all__'
 
     def validate_slug(self, value):
         # Slug unikal ekanligini tekshirish
@@ -94,17 +135,14 @@ class LandingPageSubmissionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = LandingPageSubmission
-        fields = [
-            'id', 'landing_page', 'landing_page_name', 'full_name',
-            'phone', 'comment', 'branch', 'source', 'created_at'
-        ]
+        fields = '__all__'
         read_only_fields = ('branch', 'source', 'created_at')
 
 
 class LandingPageSubmissionCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = LandingPageSubmission
-        fields = ['landing_page', 'full_name', 'phone', 'comment']
+        fields = '__all__'
 
 
 class BillingSubscriptionSerializer(serializers.ModelSerializer):
@@ -114,11 +152,7 @@ class BillingSubscriptionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Subscriptions
-        fields = [
-            'id', 'organization_id', 'organization_name', 'plan_type',
-            'start_date', 'end_date', 'status', 'price',
-            'days_remaining', 'is_expiring_soon', 'created_at'
-        ]
+        fields = '__all__'
         read_only_fields = ('created_at',)
 
     def get_days_remaining(self, obj):
@@ -139,7 +173,7 @@ class BillingCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Subscriptions
-        fields = ['plan_type', 'price', 'duration_months']
+        fields = '__all__'
 
     def validate_duration_months(self, value):
         if value not in [1, 3, 6, 12]:
@@ -175,4 +209,4 @@ class BillingStatsSerializer(serializers.Serializer):
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tag
-        fields = ["id", "name", "object_type"]
+        fields = '__all__'

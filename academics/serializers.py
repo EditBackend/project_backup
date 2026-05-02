@@ -4,12 +4,17 @@ from .models import ( LeaveReason, StudentGroupLeaves,
     LessonTime,
     TeacherSalaryRules, TeacherSalaryPayments, TeacherSalaryCalculations
 )
+from django.db import transaction
+from decimal import Decimal
+from django.utils import timezone
 from .models import StudentGroup, Student, StudentFreezes, Attendence
 from accounts.models import Employee
 from audit.models import AuditLog, AuditEntityType, AuditAction
 from .models import Student, StudentGroup, StudentFreezes
 from django.utils import timezone
+from django.db.models import Q
 from datetime import datetime
+from datetime import date
 
 from .models import (
     StudentBalances, StudentTarnsactions,
@@ -24,7 +29,6 @@ from .models import (
     Group, GroupTeacher, Course, Room, LessonSchedule,
     Student, StudentGroup, StudentPricing, Attendence, Exams, ExamResults
 )
-from audit.models import AuditLog
 from audit.serializers import AuditLogSerializer
 
 
@@ -35,10 +39,7 @@ class StudentSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class StudentGroupSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = StudentGroup
-        fields = '__all__'
+
 
 
 class StudentPricingSerializer(serializers.ModelSerializer):
@@ -60,6 +61,24 @@ class StudentTarnsactionsSerializer(serializers.ModelSerializer):
         model = StudentTarnsactions
         fields = '__all__'
 
+    def create(self, validated_data):
+        with transaction.atomic():
+            # 1. To'lov amalini bazaga yozamiz
+            transaction_obj = super().create(validated_data)
+
+            # 2. Agar tranzaksiya turi "payment" bo'lsa balansni o'zgartiramiz
+            if transaction_obj.transaction_type == 'payment':
+                balance_obj, _ = StudentBalances.objects.get_or_create(
+                    student=transaction_obj.student,
+                    branch=transaction_obj.branch,
+                    organization=transaction_obj.organization
+                )
+                # Matematik qoida: -300 + 250 = -50 (avtomatik qarzni yopadi)
+                balance_obj.balance += transaction_obj.amount
+                balance_obj.save()
+
+            return transaction_obj
+
 
 class LeaveReasonSerializer(serializers.ModelSerializer):
     class Meta:
@@ -71,6 +90,7 @@ class StudentGroupLeavesSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentGroupLeaves
         fields = '__all__'
+        depth = 1
 
 
 class StudentFreezesSerializer(serializers.ModelSerializer):
@@ -85,14 +105,73 @@ class StudentBalanceHistorySerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+
+
+from decimal import Decimal
+from django.db import transaction
+from django.utils import timezone
+
 class AttendenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Attendence
-        fields = '__all__'
+        fields = ['id', 'student_group', 'lesson_date', 'is_present', 'marked_by']
+        extra_kwargs = {
+            'marked_by': {'required': False, 'allow_null': True}
+        }
 
+    def create(self, validated_data):
+        student_group = validated_data.get('student_group')
+        lesson_date = validated_data.get('lesson_date')
+        is_present = validated_data.get('is_present', False)
+        marked_by = validated_data.get('marked_by')
 
-# ==================== GROUP SERIALIZERS ====================
+        with transaction.atomic():
 
+            # ✅ 1. Attendence yaratish (Django o‘zi hammasini qiladi)
+            attendance = Attendence.objects.create(
+                student_group=student_group,
+                lesson_date=lesson_date,
+                is_present=is_present,
+                marked_by=marked_by
+            )
+
+            # ✅ 2. PUL YECHISH
+            if is_present:
+                student = student_group.student
+                course = getattr(student_group.group, 'course', None)
+
+                if course:
+                    pricing = StudentPricing.objects.filter(
+                        student=student,
+                        course=course,
+                        start_date__lte=lesson_date,
+                        end_date__gte=lesson_date
+                    ).first()
+
+                    monthly_price = pricing.price_override if pricing else course.monthly_price
+                    lessons_count = Decimal(course.lesson_month) if course.lesson_month and course.lesson_month > 0 else Decimal(12)
+
+                    one_lesson_price = Decimal(monthly_price) / lessons_count
+
+                    # ✅ 3. Balans (branch muammosiz!)
+                    balance_obj, _ = StudentBalances.objects.get_or_create(
+                        student=student,
+                        defaults={'balance': Decimal('0')}
+                    )
+
+                    balance_obj.balance -= one_lesson_price
+                    balance_obj.save()
+
+                    # ✅ 4. History
+                    StudentBalanceHistory.objects.create(
+                        student=student,
+                        amount=-one_lesson_price,
+                        base_price=course.monthly_price,
+                        applied_price=one_lesson_price,
+                        discount=(course.monthly_price - monthly_price) if pricing else 0
+                    )
+
+            return attendance
 
 
 
@@ -160,7 +239,7 @@ class RoomSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Room
-        fields = ['id', 'name', 'capacity', 'created_at', 'updated_at']
+        fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -170,11 +249,7 @@ class CourseSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = [
-            'id', 'name', 'code', 'monthly_price',
-            'lesson', 'lesson_time', 'lesson_month',
-            'comment', 'created_at', 'updated_at'
-        ]
+        fields ='__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
 
 
@@ -184,7 +259,7 @@ class EmployeeSimpleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Employee
-        fields = ['id', 'full_name', 'email']
+        fields = '__all__'
 
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}" if hasattr(obj, 'first_name') else str(obj)
@@ -197,10 +272,7 @@ class GroupTeacherSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GroupTeacher
-        fields = [
-            'id', 'group', 'group_name', 'teacher', 'teacher_info',
-            'start_date', 'end_date', 'created_at', 'updated_at'
-        ]
+        fields = '__all__'
         read_only_fields = ['id', 'created_at', 'updated_at']
 
     def validate(self, attrs):
@@ -214,7 +286,7 @@ class GroupTeacherSerializer(serializers.ModelSerializer):
         if start_date and end_date:
             if start_date >= end_date:
                 raise serializers.ValidationError({
-                    'end_date': 'Tugash sanasi boshlanish sanasidan katta bo\'lishi kerak.'
+                    'end_date': 'Tugash sanasi boshlanish sanasidan katta bolishi kerak.'
                 })
 
         # 2. O'qituvchi vaqti guruh davri ichida bo'lishi kerak
@@ -257,7 +329,7 @@ class GroupTeacherSerializer(serializers.ModelSerializer):
 class CourseMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
-        fields = ['id', 'name', 'code']  # minimal fieldlar
+        fields = '__all__'
 
 class GroupListSerializer(serializers.ModelSerializer):
     course = CourseMinimalSerializer(read_only=True)
@@ -266,16 +338,23 @@ class GroupListSerializer(serializers.ModelSerializer):
     room_name = serializers.CharField(source='room.name', read_only=True)
     teacher_count = serializers.SerializerMethodField()
     student_count = serializers.SerializerMethodField()
+    lesson_schedule = serializers.SerializerMethodField()
 
     class Meta:
         model = Group
         fields = [
-            'id', 'name', 'course', 'course_name',
-            'status', 'room', 'room_name',
-            'start_date', 'end_date',
-            'teacher_count', 'student_count',
-            'created_at'
+            'id', 'name', 'course', 'course_name', 'room', 'room_name',
+            'start_date', 'end_date', 'status', 'lesson_schedule',
+            'teacher_count', 'student_count'
         ]
+    def get_lesson_schedule(self, obj):
+        # LessonSchedule modelidan aynan shu guruhga tegishli kunlarni oladi
+        schedules = LessonSchedule.objects.filter(group=obj)
+        return [{
+            'day_type': s.day_type,
+            'start_time': s.start_time.strftime('%H:%M') if s.start_time else None,
+            'end_time': s.end_time.strftime('%H:%M') if s.end_time else None
+        } for s in schedules]
 
     def get_teacher_count(self, obj):
         return obj.group.count()
@@ -286,12 +365,24 @@ class GroupListSerializer(serializers.ModelSerializer):
 
 
     def get_teachers(self, obj):
-        """Guruh o'qituvchilari"""
-        teachers = GroupTeacher.objects.filter(
-            group=obj,
-            end_date__isnull=True
-        ).select_related('teacher')
-        return TeacherMinimalSerializer([t.teacher for t in teachers], many=True).data
+            # Guruhga biriktirilgan o'qituvchilarni olamiz
+            teachers = GroupTeacher.objects.filter(group=obj).select_related('teacher__user')
+
+            res = []
+            for t in teachers:
+                # t bu GroupTeacher obyekti
+                # t.teacher bu Employee obyekti
+                # t.teacher.user bu User obyekti (Ism-sharif aynan shu yerda)
+
+                res.append({
+                    "id": t.teacher.id,
+                    # MANA BU JOYNI TO'G'IRLASH KERAK:
+                    "full_name": t.teacher.user.full_name if t.teacher.user.full_name else t.teacher.user.email,
+                    "start_date": t.start_date,
+                    "end_date": t.end_date,
+                    "is_active": t.end_date is None
+                })
+            return res
 
     def get_students_count(self, obj):
         """Talabalar soni"""
@@ -350,22 +441,32 @@ class GroupDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = [
-            'id', 'name', 'course', 'status', 'room',
-            'start_date', 'end_date', 'teachers', 'students',
-            'lesson_schedule', 'statistics', 'created_at', 'updated_at'
-        ]
+        fields = '__all__'
 
 
     def get_teachers(self, obj):
-        teachers = GroupTeacher.objects.filter(group=obj).select_related('teacher')
-        return [{
-            'id': str(t.teacher.id),
-            'full_name': f"{t.teacher.first_name} {t.teacher.last_name}",
-            'start_date': t.start_date,
-            'end_date': t.end_date,
-            'is_active': t.end_date is None
-        } for t in teachers]
+        teachers = GroupTeacher.objects.filter(group=obj).select_related('teacher', 'teacher__user')
+
+        result = []
+        for t in teachers:
+            teacher = t.teacher
+            user = getattr(teacher, 'user', None)
+
+            full_name = ""
+            if user:
+                full_name = f"{user.first_name} {user.last_name}".strip()
+                if not full_name:
+                    full_name = user.email
+
+            result.append({
+                'id': str(teacher.id) if teacher else None,
+                'full_name': full_name,
+                'start_date': t.start_date,
+                'end_date': t.end_date,
+                'is_active': t.end_date is None
+            })
+
+        return result
 
     def get_students(self, obj):
         students = StudentGroup.objects.filter(
@@ -407,7 +508,7 @@ class GroupDetailSerializer(serializers.ModelSerializer):
 class GroupCreateUpdateSerializer(serializers.ModelSerializer):
     """Guruh yaratish va yangilash uchun serializer"""
     teacher_ids = serializers.ListField(
-        child=serializers.IntegerField(),
+        child=serializers.CharField(),
         write_only=True,
         required=False,
         help_text="O'qituvchilar ID ro'yxati"
@@ -415,10 +516,7 @@ class GroupCreateUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = [
-            'id', 'name', 'course', 'status', 'room',
-            'start_date', 'end_date', 'teacher_ids'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, attrs):
@@ -489,44 +587,57 @@ class GroupCreateUpdateSerializer(serializers.ModelSerializer):
 
     @transaction.atomic
     def update(self, instance, validated_data):
-        """Guruhni yangilash"""
         teacher_ids = validated_data.pop('teacher_ids', None)
 
-        # Guruhni yangilash
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # O'qituvchilarni yangilash (agar berilgan bo'lsa)
+        # Faqat teacher_ids yuborilgandagina o'zgartiramiz
         if teacher_ids is not None:
-            # Eski o'qituvchilarni o'chirish
+            # related_name orqali o'chirish (agar related_name="group" bo'lsa)
+            # ehtiyot bo'ling: Related name odatda 'group_teachers' bo'lishi kerak
             instance.group.all().delete()
-            # Yangi o'qituvchilarni qo'shish
             self._assign_teachers(instance, teacher_ids, instance.start_date, instance.end_date)
 
         return instance
 
     def _assign_teachers(self, group, teacher_ids, start_date, end_date):
-        """O'qituvchilarni guruhga biriktirish"""
-        teachers = Employee.objects.filter(id__in=teacher_ids)
+            """O'qituvchilarni guruhga biriktirish (Xatolarsiz variant)"""
+            # teacher_ids UUID yoki ID ekanligini tekshiramiz
+            teachers = Employee.objects.filter(id__in=teacher_ids)
 
-        if len(teachers) != len(teacher_ids):
-            raise serializers.ValidationError({
-                'teacher_ids': 'Ba\'zi o\'qituvchilar topilmadi.'
-            })
+            if len(teachers) != len(teacher_ids):
+                raise serializers.ValidationError({
+                    'teacher_ids': 'Ba\'zi o\'qituvchilar topilmadi.'
+                })
 
-        for teacher in teachers:
-            # Har bir o'qituvchi uchun validatsiya
-            group_teacher_data = {
-                'group': group,
-                'teacher': teacher,
-                'start_date': start_date,
-                'end_date': end_date
-            }
+            for teacher in teachers:
+                # group.organization_id_id — Djangoda ForeignKey obyektini emas,
+                # bazadagi asl ID qiymatni (UUID string) olish usuli.
+                group_teacher_data = {
+                    'group': group.id,
+                    'teacher': teacher.id,
+                    'start_date': start_date,
+                    'end_date': end_date,
+                    # Agar maydon nomi 'organization' bo'lsa '_id' qo'shing,
+                    # agar allaqachon 'organization_id' bo'lsa, shunday qolsin.
+                    'organization_id': getattr(group, 'organization_id', group.organization_id),
+                    'branch_id': getattr(group, 'branch_id', group.branch_id)
+                }
 
-            group_teacher_serializer = GroupTeacherSerializer(data=group_teacher_data)
-            group_teacher_serializer.is_valid(raise_exception=True)
-            group_teacher_serializer.save()
+                # Validatsiyadan oldin ma'lumotlarni tekshirib olish uchun:
+                group_teacher_serializer = GroupTeacherSerializer(data=group_teacher_data)
+
+                try:
+                    group_teacher_serializer.is_valid(raise_exception=True)
+                    group_teacher_serializer.save()
+                except serializers.ValidationError as e:
+                    # Ichki xatolikni aniq ko'rsatish
+                    raise serializers.ValidationError({
+                        'teacher_assignment_error': e.detail,
+                        'debug_info': group_teacher_data # Xato bo'lsa, nima yuborilganini ko'rish uchun
+                    })
 
     def to_representation(self, instance):
         """Response uchun detali serializer ishlatish"""
@@ -551,11 +662,7 @@ class GroupFullInfoSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = [
-            'id', 'name', 'status', 'start_date', 'end_date',
-            'course_name', 'monthly_price', 'room_name', 'room_capacity',
-            'teachers', 'schedule', 'student_count'
-        ]
+        fields = '__all__'
 
     def get_teachers(self, obj):
         teachers = obj.group.all()
@@ -583,7 +690,7 @@ class AttendanceSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Attendence
-        fields = ['id', 'student_group', 'student_name', 'lesson_date', 'is_present', 'marked_by']
+        fields = '__all__'
         read_only_fields = ['marked_by']
 
     def validate(self, attrs):
@@ -608,7 +715,7 @@ class StudentListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentGroup
-        fields = ['id', 'student', 'student_name', 'student_phone', 'group', 'group_name', 'joined_at', 'left_at']
+        fields = '__all__'
     balance = serializers.SerializerMethodField()
     groups  = serializers.SerializerMethodField()
     teachers = serializers.SerializerMethodField()
@@ -617,12 +724,7 @@ class StudentListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Student
-        fields = [
-            'id', 'full_name', 'photo', 'phone_number',
-            'status', 'balance', 'coins',
-            'groups', 'teachers', 'last_lesson_date',
-            'extra_info', 'created_at',
-        ]
+        fields = '__all__'
 
     def get_balance(self, obj):
         b = obj.student_balances.first()
@@ -685,8 +787,7 @@ class DiscountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentPricing
-        fields = ['id', 'student', 'student_name', 'course', 'course_name', 'price_override', 'reason', 'start_date',
-                  'end_date', 'created_by']
+        fields = '__all__'
         read_only_fields = ['created_by']
 
 
@@ -697,8 +798,7 @@ class ExamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Exams
-        fields = ['id', 'group', 'group_name', 'title', 'exam_date', 'min_score', 'max_score', 'description', 'file',
-                  'created_by']
+        fields = '__all__'
         read_only_fields = ['created_by']
 
 
@@ -710,7 +810,7 @@ class ExamSerializer(serializers.ModelSerializer):
 class AddStudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = StudentGroup
-        fields = ['student', 'group', 'joined_at', 'left_at', 'end_date']
+        fields = '__all__'
 
     def validate(self, attrs):
         """Validatsiyalar"""
@@ -753,8 +853,7 @@ class AddStudentSerializer(serializers.ModelSerializer):
 
 # ============ YANGI VAZIFA: O'QUVCHI QIDIRISH VA FAOLLASHTIRISH ============
 
-from rest_framework import serializers
-from django.utils import timezone
+
 
 
 # 1. O'quvchini qidirish uchun serializer
@@ -765,10 +864,7 @@ class StudentSearchSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = [
-            'id', 'full_name', 'photo', 'phone_number', 'phone_number2',
-            'email', 'telegram_username', 'balance', 'groups_count'
-        ]
+        fields = '__all__'
 
     def get_balance(self, obj):
         """Talaba balansi"""
@@ -920,11 +1016,7 @@ class OnlineLessonListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OnlineLesson
-        fields = [
-            'id', 'title', 'group', 'group_name', 'content_type',
-            'lesson_date', 'duration_minutes', 'is_published',
-            'created_by_name', 'order', 'created_at'
-        ]
+        fields = '__all__'
 
     def get_created_by_name(self, obj):
         if obj.created_by:
@@ -961,11 +1053,7 @@ class OnlineLessonCreateUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OnlineLesson
-        fields = [
-            'id', 'group', 'title', 'description', 'content_type',
-            'video_url', 'file', 'external_link', 'text_content',
-            'lesson_date', 'duration_minutes', 'is_published', 'order'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, attrs):
@@ -1021,12 +1109,7 @@ class StudentDiscountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentPricing
-        fields = [
-            'id', 'student', 'student_name', 'course', 'course_name',
-            'original_price', 'price_override', 'discount_amount', 'discount_percentage',
-            'reason', 'start_date', 'end_date', 'is_active',
-            'created_by', 'created_by_name', 'created_at'
-        ]
+        fields = '__all__'
         read_only_fields = ['id', 'created_by', 'created_at']
 
     def get_discount_amount(self, obj):
@@ -1167,29 +1250,35 @@ class CreateStudentDiscountSerializer(serializers.Serializer):
 
 
 class LessonScheduleListSerializer(serializers.ModelSerializer):
-    """Darslar ro'yxati"""
-
     group_name = serializers.CharField(source='group.name', read_only=True)
+
+    # MANA SHU QATOR ISMNI OLIB KELADI:
+    teacher_name = serializers.SerializerMethodField()
+
     day_type_display = serializers.CharField(source='get_day_type_display', read_only=True)
     duration = serializers.SerializerMethodField()
 
     class Meta:
         model = LessonSchedule
         fields = [
-            'id', 'group', 'group_name', 'day_type', 'day_type_display',
-            'start_time', 'end_time', 'duration', 'created_at'
+            'id', 'group', 'group_name', 'teacher', 'teacher_name', # 'teacher' bu ID, 'teacher_name' bu ISMI
+            'day_type', 'day_type_display', 'start_time', 'end_time',
+            'duration', 'created_at'
         ]
 
-    def get_duration(self, obj):
-        """Dars davomiyligi (daqiqa)"""
-        from datetime import datetime, timedelta
+    def get_teacher_name(self, obj):
+        # Mantiq: LessonSchedule -> Employee -> User -> First/Last Name
+        if obj.teacher and obj.teacher.user:
+            user = obj.teacher.user
+            full_name = f"{user.first_name} {user.last_name}".strip()
+            return full_name if full_name else user.username
+        return "Biriktirilmagan"
 
+    def get_duration(self, obj):
+        from datetime import datetime
         start = datetime.combine(datetime.today(), obj.start_time)
         end = datetime.combine(datetime.today(), obj.end_time)
-
-        duration = (end - start).seconds // 60
-        return duration
-
+        return (end - start).seconds // 60
 
 class LessonScheduleDetailSerializer(serializers.ModelSerializer):
     """Dars detallari"""
@@ -1554,12 +1643,7 @@ class StudentDiscountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentPricing
-        fields = [
-            'id', 'student', 'student_name', 'course', 'course_name',
-            'original_price', 'price_override', 'discount_amount',
-            'reason', 'start_date', 'end_date', 'is_active',
-            'created_by', 'created_by_name', 'created_at'
-        ]
+        fields = '__all__'
 
     def get_discount_amount(self, obj):
         """Chegirma miqdori"""
@@ -1615,7 +1699,6 @@ from rest_framework import serializers
 from .models import Group, GroupTeacher, StudentGroup
 from .models import Student, StudentGroupLeaves, StudentFreezes
 from accounts.models import Employee
-from audit.models import AuditLog, AuditEntityType
 
 
 class EmployeeMinimalSerializer(serializers.ModelSerializer):
@@ -1623,7 +1706,7 @@ class EmployeeMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Employee
-        fields = ['id', 'first_name', 'last_name', 'role']
+        fields = '__all__'
 
 
 class StudentMinimalSerializer(serializers.ModelSerializer):
@@ -1631,7 +1714,7 @@ class StudentMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Student
-        fields = ['id', 'full_name', 'phone_number']
+        fields = '__all__'
 
 
 class GroupHistorySerializer(serializers.Serializer):
@@ -1649,7 +1732,7 @@ class GroupTeacherHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GroupTeacher
-        fields = ['id', 'teacher', 'start_date', 'end_date', 'action_type', 'created_at']
+        fields = '__all__'
 
     def get_action_type(self, obj):
         return "O'qituvchi tayinlandi"
@@ -1662,7 +1745,7 @@ class StudentGroupHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentGroup
-        fields = ['id', 'student', 'joined_at', 'left_at', 'end_date', 'action_type', 'created_at']
+        fields = '__all__'
 
     def get_action_type(self, obj):
         if obj.left_at:
@@ -1678,8 +1761,7 @@ class StudentLeaveHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentGroupLeaves
-        fields = ['id', 'student', 'leave_date', 'leave_reason', 'comment',
-                  'recalc_balance', 'refound_amount', 'created_by', 'created_at']
+        fields = '__all__'
 
 
 class StudentFreezeHistorySerializer(serializers.ModelSerializer):
@@ -1689,8 +1771,7 @@ class StudentFreezeHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentFreezes
-        fields = ['id', 'student', 'freeze_start_date', 'freeze_end_date',
-                  'reason', 'recalc_balance', 'created_by', 'created_at']
+        fields = '__all__'
 
 
 
@@ -1713,7 +1794,6 @@ from .models import (
 )
 from .models import Group
 from accounts.models import Employee
-from django.utils import timezone
 from decimal import Decimal
 
 
@@ -1775,10 +1855,7 @@ class StudentFreezeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentFreezes
-        fields = [
-            'id', 'student_id', 'group_id', 'freeze_start_date',
-            'freeze_end_date', 'reason', 'recalc_balance', 'created_at'
-        ]
+        fields = '__all__'
         read_only_fields = ['id', 'created_at']
 
     def validate(self, data):
@@ -1901,58 +1978,85 @@ class GroupMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = ['id', 'name', 'status']
+        fields = '__all__'
+
+
 
 
 class StudentGroupDetailSerializer(serializers.ModelSerializer):
-    """StudentGroup batafsil ma'lumot"""
-    student = StudentMinimalSerializer()
-    group = GroupMinimalSerializer()
+    """StudentGroup batafsil ma'lumot (GET uchun)"""
+    # Guruh ma'lumotlari
+    group_name = serializers.CharField(source='group.name', read_only=True)
+    course_name = serializers.CharField(source='group.course.name', read_only=True)
+    course_price = serializers.DecimalField(
+        source='group.course.monthly_price',
+        max_digits=12, decimal_places=2, read_only=True
+    )
+    group_status = serializers.CharField(source='group.status', read_only=True)
+    teacher = serializers.SerializerMethodField()
+    schedule = serializers.SerializerMethodField()
 
     class Meta:
         model = StudentGroup
         fields = [
-            'id', 'student', 'group', 'joined_at',
-            'left_at', 'end_date', 'created_at'
+            'id', 'student', 'group', 'group_name', 'course_name',
+            'course_price', 'group_status', 'teacher', 'schedule',
+            'joined_at', 'left_at', 'end_date'
         ]
-        group_name = serializers.CharField(source='group.name', read_only=True)
-        course_name = serializers.CharField(source='group.course.name', read_only=True)
-        course_price = serializers.DecimalField(
-            source='group.course.monthly_price',
-            max_digits=12, decimal_places=2, read_only=True
-        )
-        group_status = serializers.CharField(source='group.status', read_only=True)
-        group_start_date = serializers.DateField(source='group.start_date', read_only=True)
-        group_end_date = serializers.DateField(source='group.end_date', read_only=True)
-        teacher = serializers.SerializerMethodField()
-        schedule = serializers.SerializerMethodField()
 
-        class Meta:
-            model = StudentGroup
-            fields = [
-                'id', 'group', 'group_name', 'course_name', 'course_price',
-                'teacher', 'schedule',
-                'group_status', 'group_start_date', 'group_end_date',
-                'joined_at', 'left_at', 'end_date',
-            ]
+    def get_teacher(self, obj):
+        tg = GroupTeacher.objects.filter(
+            group=obj.group
+        ).select_related('teacher__user').first()
+        if tg:
+            return {'id': tg.teacher.id, 'full_name': tg.teacher.user.full_name}
+        return None
 
-        def get_teacher(self, obj):
-            tg = GroupTeacher.objects.filter(
-                group=obj.group
-            ).select_related('teacher__user').first()
-            if tg:
-                return {'id': tg.teacher.id, 'full_name': tg.teacher.user.full_name}
-            return None
+    def get_schedule(self, obj):
+        # lesson_group - bu Group modelidagi related_name deb hisoblaymiz
+        return [
+            {
+                'day_type': s.day_type,
+                'start_time': str(s.start_time),
+                'end_time': str(s.end_time),
+            }
+            for s in obj.group.lesson_group.all()
+        ]
 
-        def get_schedule(self, obj):
-            return [
-                {
-                    'day_type': s.day_type,
-                    'start_time': str(s.start_time),
-                    'end_time': str(s.end_time),
-                }
-                for s in obj.group.lesson_group.all()
-            ]
+class StudentGroupCreateUpdateSerializer(serializers.ModelSerializer):
+    """Yaratish va yangilash uchun (POST, PUT, PATCH)"""
+    class Meta:
+        model = StudentGroup
+        # Faqat foydalanuvchi yuborishi kerak bo'lgan maydonlar
+        fields = ['student', 'group', 'joined_at', 'left_at', 'end_date']
+
+    def validate(self, attrs):
+        # Validatsiya: qo'shilgan sana tugash sanasidan katta bo'lmasligi kerak
+        if attrs.get('joined_at') and attrs.get('end_date'):
+            if attrs['joined_at'] > attrs['end_date']:
+                raise serializers.ValidationError("Qo'shilgan sana tugash sanasidan keyin bo'la olmaydi.")
+        return attrs
+
+    def create(self, validated_data):
+        group = validated_data.get('group')
+
+        # 1. Avval obyektni yaratamiz (Hozircha branch/org'siz)
+        instance = StudentGroup(**validated_data)
+
+        if group:
+            # 2. Group'dan obyektlarni olamiz
+            branch_obj = getattr(group, 'branch', None)
+            org_obj = getattr(group, 'organization', None)
+
+            # 3. Ularni ID orqali bog'laymiz (Xatolikni oldini olish uchun eng xavfsiz yo'l)
+            if branch_obj:
+                instance.branch_id = branch_obj.id  # Obyektni o'zi emas, ID'si!
+            if org_obj:
+                instance.organization_id = org_obj.id # Obyektni o'zi emas, ID'si!
+
+        # 4. Endi saqlaymiz
+        instance.save()
+        return instance
 
 
 class StudentFreezeDetailSerializer(serializers.ModelSerializer):
@@ -1963,19 +2067,13 @@ class StudentFreezeDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = StudentFreezes
-        fields = [
-            'id', 'student', 'group', 'freeze_start_date',
-            'freeze_end_date', 'reason', 'recalc_balance',
-            'created_by', 'created_at'
-        ]
+        fields = '__all__'
 
 
 from rest_framework import serializers
 from .models import Group, GroupTeacher, Course, Room, LessonSchedule
 from .models import StudentGroup, Student
 from accounts.models import Employee
-from django.db.models import Count, Q
-from datetime import date, timedelta
 
 
 
@@ -1986,7 +2084,7 @@ class CourseMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Course
-        fields = ['id', 'name', 'code', 'monthly_price', 'lesson_month']
+        fields = '__all__'
 
 
 class TeacherMinimalSerializer(serializers.ModelSerializer):
@@ -1995,7 +2093,7 @@ class TeacherMinimalSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Employee
-        fields = ['id', 'first_name', 'last_name', 'full_name', 'role']
+        fields = '__all__'
 
     def get_full_name(self, obj):
         return f"{obj.first_name} {obj.last_name}"
@@ -2017,10 +2115,7 @@ class GroupCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = [
-            'id', 'name', 'course_id', 'status', 'room_id',
-            'start_date', 'end_date', 'teacher_ids'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, data):
@@ -2084,10 +2179,7 @@ class GroupUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Group
-        fields = [
-            'id', 'name', 'course_id', 'status', 'room_id',
-            'start_date', 'end_date'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def update(self, instance, validated_data):
@@ -2262,10 +2354,7 @@ class ExportHistorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditLog
-        fields = [
-            'id', 'action', 'performed_by', 'export_info',
-            'created_at'
-        ]
+        fields = '__all__'
 
     def get_performed_by(self, obj):
         if obj.performed_by:
@@ -2526,12 +2615,17 @@ class ExamCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         group = validated_data.pop('group')
-        validated_data.pop('group_id')
+        validated_data.pop('group_id', None)
+        created_by = validated_data.pop('created_by', None)
 
-        # Exam yaratish
+        # Imtihonni yaratish
         exam = Exams.objects.create(
             group=group,
-            created_by=self.context['request'].user,
+            # Modelda maydonlar 'branch_id' va 'organization_id' deb nomlangan
+            # Shuning uchun ularga to'g'ridan-to'g'ri ID qiymatini beramiz
+            branch_id_id=group.branch_id,
+            organization_id_id=group.organization_id,
+            created_by=created_by,
             **validated_data
         )
 
@@ -2543,10 +2637,7 @@ class ExamUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Exams
-        fields = [
-            'id', 'title', 'exam_date', 'min_score',
-            'max_score', 'description', 'file'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, data):
@@ -2572,7 +2663,7 @@ class ExamResultSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExamResults
-        fields = ['id', 'exam_id', 'student_id', 'score', 'comment']
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, data):
@@ -2627,10 +2718,7 @@ class ExamResultDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ExamResults
-        fields = [
-            'id', 'student', 'score', 'comment', 'status',
-            'status_color', 'created_by', 'created_at', 'updated_at'
-        ]
+        fields = '__all__'
 
     def get_status(self, obj):
         """Imtihon holati"""
@@ -2665,11 +2753,7 @@ class ExamListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Exams
-        fields = [
-            'id', 'title', 'group_name', 'exam_date', 'min_score',
-            'max_score', 'total_students', 'graded_students',
-            'passed_students', 'created_by', 'created_at'
-        ]
+        fields = '__all__'
 
     def get_total_students(self, obj):
         """Jami talabalar soni (qatnashishga haqli)"""
@@ -2711,11 +2795,7 @@ class ExamDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Exams
-        fields = [
-            'id', 'title', 'group', 'exam_date', 'min_score',
-            'max_score', 'description', 'file', 'created_by',
-            'results', 'statistics', 'created_at', 'updated_at'
-        ]
+        fields = '__all__'
 
     def get_group(self, obj):
         return {
@@ -2724,10 +2804,11 @@ class ExamDetailSerializer(serializers.ModelSerializer):
         }
 
     def get_created_by(self, obj):
-        if obj.created_by:
+        if obj.created_by and obj.created_by.user:
             return {
                 'id': str(obj.created_by.id),
-                'name': f"{obj.created_by.first_name} {obj.created_by.last_name}"
+                # Employee orqali uning User'iga o'tib, ism-familiyasini olamiz
+                'name': f"{obj.created_by.user.first_name} {obj.created_by.user.last_name}"
             }
         return None
 
@@ -2813,11 +2894,7 @@ class OnlineLessonCreateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OnlineLesson
-        fields = [
-            'id', 'group_id', 'title', 'description', 'content_type',
-            'video_url', 'file', 'external_link', 'text_content',
-            'lesson_date', 'duration_minutes', 'is_published', 'order'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
     def validate(self, data):
@@ -2864,11 +2941,7 @@ class OnlineLessonUpdateSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = OnlineLesson
-        fields = [
-            'id', 'title', 'description', 'content_type',
-            'video_url', 'file', 'external_link', 'text_content',
-            'lesson_date', 'duration_minutes', 'is_published', 'order'
-        ]
+        fields = '__all__'
         read_only_fields = ['id']
 
 
@@ -2998,46 +3071,47 @@ from accounts.models import Employee
 # ──────────────────────────────────────────
 # YANGI TALABA YARATISH  (2-3-rasm)
 # ──────────────────────────────────────────
+import re # Tepaga qo'shib qo'ying
 
 class StudentCreateSerializer(serializers.ModelSerializer):
     class Meta:
-        model  = Student
-        fields = [
-            'full_name', 'phone_number', 'phone_number2',
-            'birth_date', 'gender', 'password',
-            'parent_name', 'parent_phone',
-            'email', 'telegram_username',
-            'school', 'address', 'extra_info', 'photo',
-        ]
+        model = Student
+        fields = '__all__'
 
     def validate_phone_number(self, value):
-        if Student.objects.filter(phone_number=value).exists():
-            raise serializers.ValidationError("Bu telefon raqam allaqachon mavjud.")
+        # 1. Faqat raqamlarni ajratib olamiz (+998 20... -> 99820...)
+        clean_number = re.sub(r'\D', '', value)
+
+        # 2. Uzunligini tekshiramiz (9 talik yoki 12 talik bo'lishi mumkin)
+        if len(clean_number) < 9:
+            raise serializers.ValidationError("Telefon raqami juda qisqa.")
+
+        # 3. Bazada borligini tekshirishda ham tozalangan raqamni ishlating
+        # (Agar bazada raqamlar har xil formatda saqlangan bo'lsa, bu muhim)
+        if Student.objects.filter(phone_number__icontains=clean_number).exists():
+             raise serializers.ValidationError("Bu telefon raqam allaqachon mavjud.")
+
         return value
 
 
-# ──────────────────────────────────────────
-# TALABANI TAHRIRLASH
-# ──────────────────────────────────────────
 
 class StudentUpdateSerializer(serializers.ModelSerializer):
     class Meta:
-        model  = Student
-        fields = [
-            'full_name', 'phone_number', 'phone_number2',
-            'birth_date', 'gender', 'password',
-            'parent_name', 'parent_phone',
-            'email', 'telegram_username',
-            'school', 'address', 'extra_info', 'photo',
-        ]
+        model = Student
+        fields = '__all__'
 
     def validate_phone_number(self, value):
-        if Student.objects.filter(
-            phone_number=value
-        ).exclude(pk=self.instance.pk).exists():
-            raise serializers.ValidationError("Bu telefon raqam allaqachon mavjud.")
-        return value
+        # Raqamni tozalash
+        clean_number = re.sub(r'\D', '', value)
 
+        if len(clean_number) < 9:
+            raise serializers.ValidationError("Telefon raqami noto'g'ri.")
+
+        # O'zidan tashqari boshqalarda borligini tekshirish
+        if Student.objects.filter(phone_number__icontains=clean_number).exclude(pk=self.instance.pk).exists():
+            raise serializers.ValidationError("Bu telefon raqam allaqachon mavjud.")
+
+        return value
 
 
 
@@ -3046,20 +3120,36 @@ class StudentUpdateSerializer(serializers.ModelSerializer):
 # ──────────────────────────────────────────
 
 class TransactionSerializer(serializers.ModelSerializer):
+    # 1. Talaba ismini chiqarish (Rasmda "Ismi kiritilmagan" bo'lib turibdi)
+    student_name = serializers.CharField(source='student.full_name', read_only=True)
+
+    # 2. To'lovni qabul qilgan xodim ismi
     accepted_by_name = serializers.SerializerMethodField()
+
+    # 3. Agar modelda o'qituvchi bog'langan bo'lsa (bo'sh qolmasligi uchun)
+    teacher_name = serializers.SerializerMethodField()
 
     class Meta:
         model  = StudentTarnsactions
         fields = [
-            'id', 'transaction_type', 'amount', 'payment_type',
-            'transaction_date', 'comment',
-            'accepted_by_name', 'created_at',
+            'id', 'student', 'student_name', 'amount',
+            'transaction_type', 'payment_type', 'transaction_date',
+            'comment', 'accepted_by_name', 'teacher_name'
         ]
 
     def get_accepted_by_name(self, obj):
-        if obj.accepted_by:
-            return obj.accepted_by.user.full_name
-        return None
+        # accepted_by bu Employee modeli, uning user'iga o'tamiz
+        if obj.accepted_by and obj.accepted_by.user:
+            user = obj.accepted_by.user
+            full_name = f"{user.first_name} {user.last_name}".strip()
+            return full_name if full_name else user.email
+        return "-"
+
+    def get_teacher_name(self, obj):
+        # Agar tranzaksiya o'qituvchiga bog'liq bo'lsa (modelda bo'lsa)
+        if hasattr(obj, 'teacher') and obj.teacher:
+            return obj.teacher.user.full_name
+        return "-"
 
 
 # ──────────────────────────────────────────
@@ -3075,17 +3165,7 @@ class StudentDetailSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Student
-        fields = [
-            'id', 'full_name', 'photo',
-            'phone_number', 'phone_number2',
-            'birth_date', 'gender',
-            'email', 'telegram_username',
-            'parent_name', 'parent_phone',
-            'school', 'address', 'extra_info',
-            'coins', 'balance', 'status',
-            'groups', 'transactions',
-            'branch_name', 'created_at',
-        ]
+        fields = '__all__'
 
     def get_balance(self, obj):
         b = obj.student_balances.first()

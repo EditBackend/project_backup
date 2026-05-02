@@ -21,10 +21,7 @@ class AuditLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AuditLog
-        fields = [
-            'id', 'entity_type', 'entity_id', 'action', 'action_display',
-            'old_data', 'new_action', 'performed_by', 'performed_by_role', 'created_at'
-        ]
+        fields = '__all__'
 
 
 

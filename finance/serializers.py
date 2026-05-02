@@ -11,7 +11,6 @@ from crm.models import (CRMSource, CRMPipelines, CRMLead, CRMActivity,
                         CRMLeadsHistory, CRMLostReason, CRMLeadLost, CRMLeadNotes)
 from academics.models.student import (Student, StudentGroup, StudentGroupLeaves,
                                       LeaveReason)
-from academics.models.group import Group, Course, GroupTeacher
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
@@ -19,10 +18,26 @@ class ExpenseCategorySerializer(serializers.ModelSerializer):
 
 
 class ExpensesSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
+    # Modelda bor maydonlar asosida nomlarni (name) chiqarish
+    category_name = serializers.CharField(source='category.name', read_only=True, default="Boshqa")
+    branch_name = serializers.CharField(source='branch.name', read_only=True, default="-")
+
     class Meta:
         model = Expenses
-        fields = '__all__'
+        # Modelga yangi qo'shilgan name, recipient, payment_type larni ham kiritamiz
+        fields = [
+            'id',
+            'category',
+            'category_name', # Rasmda: Turkum
+            'name',          # Rasmda: Nomi (yangi qo'shildi)
+            'amount',        # Rasmda: Sum
+            'expense_date',  # Rasmda: Sana
+            'recipient',     # Rasmda: Oluvchi (yangi qo'shildi)
+            'payment_type',  # To'lov turi (cash/card)
+            'comment',       # Rasmda: Izoh
+            'branch_name',
+            'created_at'
+        ]
 
 
 class MonthlyIncomeSerializer(serializers.ModelSerializer):
@@ -399,8 +414,6 @@ class CallLogFilterSerializer(serializers.Serializer):
 # finance/serializers.py
 from rest_framework import serializers
 from .models import Payment, Sale, DetailedExpense, Expenses  # o'zingizning modellaringizni qo'ying
-from accounts.models import Employee
-from academics.models import StudentGroup, Group, Course  # agar bog'langan bo'lsa
 
 class PaymentListSerializer(serializers.ModelSerializer):
     """Jadvalda ko'rsatiladigan to'lovlar uchun"""
@@ -414,12 +427,7 @@ class PaymentListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Payment  # agar to'lovlar Payment modelida bo'lsa; agar Sale bo'lsa — Sale ga o'zgartiring
-        fields = [
-            'id', 'date', 'student_name', 'student_phone',
-            'group_name', 'course_name', 'teacher_name',
-            'amount', 'payment_type', 'employee_name',
-            'comment', 'created_at'
-        ]
+        fields = '__all__'
 
     def get_group_name(self, obj):
         try:
@@ -470,7 +478,6 @@ class AllPaymentsResponseSerializer(serializers.Serializer):
 
 from rest_framework import serializers
 from .models import DetailedExpense, ExpenseSubcategory, Payment  # modellaringiz
-from accounts.models import Employee
 
 
 class WithdrawalListSerializer(serializers.ModelSerializer):
@@ -485,10 +492,7 @@ class WithdrawalListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DetailedExpense
-        fields = [
-            'id', 'date', 'student_name', 'summa',
-            'izoh', 'xodim', 'harakat_vaqti', 'can_delete'
-        ]
+        fields = '__all__'
 
     def get_can_delete(self, obj):
         # Huquq bo'yicha logika (masalan 24 soat ichida o'chirsa bo'ladi)
@@ -522,29 +526,40 @@ class AllWithdrawalsResponseSerializer(serializers.Serializer):
 
 
 class ExpenseListSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source='category.name', read_only=True)
+    # Abdulmajid so'ragan nomlarni (name) chiqarish uchun bularni qo'shing:
+    expense_type_name = serializers.CharField(source='expense_type.name', read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+
+    # Siz yozgan boshqa nomlar:
+    category_name = serializers.CharField(source='name', read_only=True)
     subcategory_name = serializers.CharField(source='subcategory.name', read_only=True, allow_null=True)
-    payment_type_name = serializers.CharField(source='payment_type.name', read_only=True, allow_null=True)
-    date_formatted = serializers.DateField(source='date', format='%d.%m.%Y')
-    time_formatted = serializers.DateTimeField(source='date', format='%H:%M')
-    amount_formatted = serializers.DecimalField(source='amount', max_digits=12, decimal_places=0)
+    payment_type_name = serializers.CharField(source='payment_type.name', read_only=True, default="-")
+
+    # Formatlash
+    date_formatted = serializers.DateField(source='date', format='%d.%m.%Y', read_only=True)
+    time_formatted = serializers.DateTimeField(source='date', format='%H:%M', read_only=True)
+    amount_formatted = serializers.DecimalField(source='amount', max_digits=12, decimal_places=0, read_only=True)
 
     class Meta:
         model = DetailedExpense
         fields = [
-            'id', 'date_formatted', 'subcategory_name', 'name',
-            'amount_formatted', 'payment_type_name', 'comment',
-            'xodim'  # created_by yoki accepted_by full_name
+            'id',
+            'category_name', # Rasmda "Turkum"
+            'name',          # Rasmda "Nomi"
+            'recipient',     # Rasmda "Oluvchi"
+            'payment_type',
+            'payment_type_name', # Rasmda "To'lov turi"
+            'amount',        # Rasmda "Sum"
+            'comment',       # Rasmda "Izoh"
+            'created_at',    # Rasmda "Sana"
+            'branch_name'
         ]
 
 
 class ExpenseCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetailedExpense
-        fields = [
-            'name', 'date', 'subcategory', 'amount',
-            'payment_type', 'comment', 'oluvchi'  # agar alohida field bo'lsa
-        ]
+        fields = '__all__'
 
     def validate_amount(self, value):
         if value <= 0:
@@ -555,8 +570,7 @@ class ExpenseCreateUpdateSerializer(serializers.ModelSerializer):
 # finance/serializers.py
 
 from rest_framework import serializers
-from accounts.models import Employee
-from academics.models.teacher import *  # guruh modeli
+ # guruh modeli
 
 
 class TeacherSalaryRuleSerializer(serializers.ModelSerializer):
@@ -566,22 +580,14 @@ class TeacherSalaryRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeacherSalaryRules
-        fields = [
-            'id', 'teacher', 'teacher_name', 'group', 'group_name',
-            'percent_per_student', 'fixed_bonus',
-            'effective_from', 'effective_to'
-        ]
+        fields = '__all__'
 
 
 class TeacherSalaryRuleCreateSerializer(serializers.ModelSerializer):
     """Yangi qoida qo'shish uchun"""
     class Meta:
         model = TeacherSalaryRules
-        fields = [
-            'teacher', 'group',
-            'percent_per_student', 'fixed_bonus',
-            'effective_from', 'effective_to'
-        ]
+        fields = '__all__'
 
     def validate(self, data):
         if data['effective_from'] > data['effective_to']:
@@ -596,10 +602,7 @@ class TeacherSalaryCalculationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = TeacherSalaryCalculations
-        fields = [
-            'id', 'teacher', 'teacher_name', 'group', 'group_name',
-            'month', 'student_count', 'percent', 'total_amount', 'calculated_at'
-        ]
+        fields = '__all__'
 
 
 class TeacherSalaryMonthlyReportSerializer(serializers.Serializer):

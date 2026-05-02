@@ -13,6 +13,86 @@ from .serializers import (
     CRMActivitySerializer, CRMLeadsHistorySerializer,
     CRMLostReasonSerializer, CRMLeadLostSerializer, CRMLeadNotesSerializer,
 )
+from rest_framework import viewsets
+
+from .models import CrmSection
+from .serializers import CrmSectionSerializer
+from rest_framework import status
+from rest_framework.response import Response
+from rest_framework.decorators import action
+from .models import LeadForm,FormField
+from .serializers import LeadFormSerializer, LeadFormCreateSerializer
+
+
+class LeadFormViewSet(viewsets.ModelViewSet):
+    queryset = LeadForm.objects.prefetch_related('fields').all()
+    serializer_class = LeadFormSerializer
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return LeadFormCreateSerializer
+        return LeadFormSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        instance = serializer.save(created_by=request.user)
+
+        # Javobda to'liq ma'lumot (fields bilan) qaytarish
+        output_serializer = LeadFormSerializer(instance)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+
+    # Forma nusxasini yaratish
+    @action(detail=True, methods=['post'])
+    def duplicate(self, request, pk=None):
+        form = self.get_object()
+        new_form = LeadForm.objects.create(
+            name=f"{form.name} (nusxa)",
+            type=form.type,
+            branch=form.branch,
+            pipeline=form.pipeline,
+            source=form.source,
+            created_by=request.user
+        )
+
+        for field in form.fields.all():
+            FormField.objects.create(
+                lead_form=new_form,
+                label=field.label,
+                field_type=field.field_type,
+                is_required=field.is_required,
+                order=field.order,
+                options=field.options
+            )
+
+        serializer = LeadFormSerializer(new_form)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    # Field turlarini olish (select uchun)
+    @action(detail=False, methods=['get'])
+    def field_types(self, request):
+        choices = [
+            {"value": k, "label": v}
+            for k, v in FormField.FIELD_TYPE_CHOICES
+        ]
+        return Response(choices)
+
+
+
+
+class CrmSectionViewSet(viewsets.ModelViewSet):
+    queryset = CrmSection.objects.all()
+    serializer_class = CrmSectionSerializer
+    permission_classes = [IsAuthenticated]  # ixtiyoriy
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        pipeline_id = self.request.query_params.get('pipeline')
+
+        if pipeline_id:
+            queryset = queryset.filter(pipeline_id=pipeline_id)
+
+        return queryset
 
 
 # ─── AuditLog helper ─────────────────────────────────────────────
@@ -104,37 +184,31 @@ class CRMLeadViewSet(ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        obj = serializer.save()
-        _log('lead', obj.id, 'create', None, {
-            'action':       'Lead yaratildi',
-            'full_name':    obj.full_name,
-            'phone_number': obj.phone_number,
-            'status':       obj.status,
-            'source_id':    str(obj.source_id) if obj.source_id else None,
-            'pipeline_id':  str(obj.pipline_id) if obj.pipline_id else None,
-        }, self.request.user)
+        serializer.save(assigned_to=self.request.user)
 
     def perform_update(self, serializer):
         old = {
             'full_name':    serializer.instance.full_name,
             'phone_number': serializer.instance.phone_number,
             'status':       serializer.instance.status,
-            'pipeline_id':  str(serializer.instance.pipline_id) if serializer.instance.pipline_id else None,
+            'pipeline_id':  str(serializer.instance.pipline_id) if hasattr(serializer.instance, 'pipline_id') else None,
         }
         obj = serializer.save()
         _log('lead', obj.id, 'update', old, {
             'full_name':    obj.full_name,
             'phone_number': obj.phone_number,
             'status':       obj.status,
-            'pipeline_id':  str(obj.pipline_id) if obj.pipline_id else None,
+            'pipeline_id':  str(obj.pipline_id) if hasattr(obj, 'pipline_id') else None,
         }, self.request.user)
 
     def perform_destroy(self, instance):
+        # MUHIM: _log parametrlarini tekshiring.
+        # Agar None yuborish kerak bo'lsa ham, {} (bo'sh dict) yuborish xavfsizroq.
         _log('lead', instance.id, 'delete', {
             'full_name':    instance.full_name,
             'phone_number': instance.phone_number,
             'status':       instance.status,
-        }, None, self.request.user)
+        }, {}, self.request.user) # None o'rniga {} yubordik
         instance.delete()
 
 

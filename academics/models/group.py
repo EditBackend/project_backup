@@ -2,6 +2,7 @@ from django.db import models
 from core.models import BaseModel
 # from academics.models.lesson import LessonTime
 from accounts.models import Employee
+from organizations.models import Branch,Organizations
 
 class Room(BaseModel):
     name = models.CharField(max_length=250)
@@ -14,6 +15,9 @@ class Course(BaseModel):
     lesson = models.ForeignKey('LessonTime', on_delete=models.SET_NULL, null=True, related_name="Course_lesson")
     lesson_month = models.PositiveIntegerField()
     comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
 
 
 class Group(BaseModel):
@@ -29,6 +33,9 @@ class Group(BaseModel):
     room = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, related_name="group_room")
     start_date = models.DateField()
     end_date = models.DateField()
+    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, null=True,blank=True)
+    organization = models.ForeignKey(Organizations, on_delete=models.CASCADE, null=True,blank=True)
+    is_active = models.BooleanField(default=True)
 
 
 class GroupTeacher(BaseModel):
@@ -36,3 +43,4 @@ class GroupTeacher(BaseModel):
     teacher = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="teacher")
     start_date = models.DateField()
     end_date = models.DateField()
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Yangilangan vaqt")

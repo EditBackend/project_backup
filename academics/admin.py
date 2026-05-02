@@ -1,181 +1,147 @@
 from django.contrib import admin
-from .models import (
+from django.utils.html import format_html
+from django.db.models import Sum
+from .models.student import (
     Student, StudentGroup, StudentPricing, StudentBalances,
     StudentTarnsactions, LeaveReason, StudentGroupLeaves,
-    StudentFreezes, StudentBalanceHistory, Attendence,
-    Room, Course, Group, GroupTeacher,
+    StudentFreezes, StudentBalanceHistory, Attendence)
+from .models.group import (
+    Room, Course, Group, GroupTeacher)
+from .models.lesson import (
     LessonTime, LessonSchedule, Exams, ExamResults,
-    TeacherSalaryRules, TeacherSalaryPayments, TeacherSalaryCalculations
+    OnlineLesson
 )
 
+# ==================== INLINES (Bir-biriga bog'langan modellar) ====================
+
+class StudentGroupInline(admin.TabularInline):
+    model = StudentGroup
+    extra = 1
+
+class LessonScheduleInline(admin.TabularInline):
+    model = LessonSchedule
+    extra = 1
+
+class GroupTeacherInline(admin.TabularInline):
+    model = GroupTeacher
+    extra = 1
 
 # ==================== STUDENT ADMIN ====================
+
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ('id', 'full_name', 'phone_number', 'phone_number2', 'email', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('full_name', 'phone_number', 'phone_number2', 'email', 'telegram_username')
-    readonly_fields = ('created_at',)
+    list_display = ('display_photo', 'full_name', 'phone_number', 'get_balance', 'status_colored')
+    list_filter = ('status', 'branch', 'created_at')
+    search_fields = ('full_name', 'phone_number', 'phone_number2', 'telegram_username')
+    inlines = [StudentGroupInline]
+    list_per_page = 20
 
+    # Rasmni admin panelda ko'rsatish
+    def display_photo(self, obj):
+        if obj.photo:
+            return format_html('<img src="{}" width="40" height="40" style="border-radius: 50%;" />', obj.photo.url)
+        return "No Photo"
+    display_photo.short_description = "Rasm"
 
-@admin.register(StudentGroup)
-class StudentGroupAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'group', 'joined_at', 'left_at', 'end_date')
-    list_filter = ('joined_at', 'left_at', 'end_date')
-    search_fields = ('student__full_name', 'group__name')
-    readonly_fields = ('created_at',)
+    # Balansni rangli ko'rsatish
+    def get_balance(self, obj):
+        balance_obj = StudentBalances.objects.filter(student=obj).first()
+        if balance_obj:
+            color = "green" if balance_obj.balance >= 0 else "red"
+            return format_html('<b style="color: {};">{} so\'m</b>', color, balance_obj.balance)
+        return "0 so'm"
+    get_balance.short_description = "Balans"
 
-
-@admin.register(StudentPricing)
-class StudentPricingAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'course', 'price_override', 'start_date', 'end_date', 'created_by')
-    list_filter = ('start_date', 'end_date', 'created_at')
-    search_fields = ('student__full_name', 'course__name', 'reason')
-    readonly_fields = ('created_at',)
-
-
-@admin.register(StudentBalances)
-class StudentBalancesAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'balance', 'updated_at')
-    list_filter = ('updated_at',)
-    search_fields = ('student__full_name',)
-    readonly_fields = ('updated_at', 'created_at')
-
-
-@admin.register(StudentTarnsactions)
-class StudentTarnsactionsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'transaction_type', 'amount', 'payment_type', 'transaction_date', 'accepted_by')
-    list_filter = ('transaction_type', 'payment_type', 'transaction_date')
-    search_fields = ('student__full_name', 'comment')
-    readonly_fields = ('created_at',)
-
-
-@admin.register(LeaveReason)
-class LeaveReasonAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'is_active', 'created_at')
-    list_filter = ('is_active', 'created_at')
-    search_fields = ('name',)
-    readonly_fields = ('created_at',)
-
-
-@admin.register(StudentGroupLeaves)
-class StudentGroupLeavesAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'group', 'leave_date', 'leave_reason', 'recalc_balance', 'refound_amount', 'created_by')
-    list_filter = ('leave_date', 'recalc_balance', 'created_at')
-    search_fields = ('student__full_name', 'group__name', 'comment')
-    readonly_fields = ('created_at',)
-
-
-@admin.register(StudentFreezes)
-class StudentFreezesAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'group', 'freeze_start_date', 'freeze_end_date', 'recalc_balance', 'created_by')
-    list_filter = ('freeze_start_date', 'freeze_end_date', 'recalc_balance')
-    search_fields = ('student__full_name', 'group__name', 'reason')
-    readonly_fields = ('created_at',)
-
-
-@admin.register(StudentBalanceHistory)
-class StudentBalanceHistoryAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student', 'amount', 'base_price', 'applied_price', 'discount', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('student__full_name',)
-    readonly_fields = ('created_at',)
-
-
-@admin.register(Attendence)
-class AttendenceAdmin(admin.ModelAdmin):
-    list_display = ('id', 'student_group', 'lesson_date', 'is_present', 'marked_by', 'created_at')
-    list_filter = ('lesson_date', 'is_present', 'created_at')
-    search_fields = ('student_group__student__full_name',)
-    readonly_fields = ('created_at',)
-
+    def status_colored(self, obj):
+        colors = {
+            'active': 'green',
+            'frozen': 'blue',
+            'inactive': 'red',
+            'graduated': 'gold'
+        }
+        return format_html('<span style="color: {}; font-weight: bold;">{}</span>', colors.get(obj.status, 'black'), obj.get_status_display())
+    status_colored.short_description = "Status"
 
 # ==================== GROUP ADMIN ====================
-@admin.register(Room)
-class RoomAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'capacity', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('name',)
-    readonly_fields = ('created_at',)
-
-
-@admin.register(Course)
-class CourseAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'code', 'monthly_price', 'lesson', 'lesson_month', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('name', 'code')
-    readonly_fields = ('created_at',)
-
 
 @admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'course', 'status', 'room', 'start_date', 'end_date', 'created_at')
-    list_filter = ('status', 'start_date', 'end_date', 'created_at')
-    search_fields = ('name', 'course__name', 'room__name')
-    readonly_fields = ('created_at',)
+    list_display = ('name', 'course', 'room', 'teacher_display', 'student_count', 'status_tag')
+    list_filter = ('status', 'course', 'branch', 'room')
+    search_fields = ('name',)
+    inlines = [GroupTeacherInline, LessonScheduleInline]
 
+    def teacher_display(self, obj):
+        teachers = GroupTeacher.objects.filter(group=obj).values_list('teacher__user__first_name', flat=True)
+        return ", ".join(teachers) if teachers else "Biriktirilmagan"
+    teacher_display.short_description = "O'qituvchi"
 
-@admin.register(GroupTeacher)
-class GroupTeacherAdmin(admin.ModelAdmin):
-    list_display = ('id', 'group', 'teacher', 'start_date', 'end_date', 'created_at')
-    list_filter = ('start_date', 'end_date', 'created_at')
-    search_fields = ('group__name', 'teacher__username')
-    readonly_fields = ('created_at',)
+    def student_count(self, obj):
+        count = StudentGroup.objects.filter(group=obj).count()
+        return format_html('<b>{} ta talaba</b>', count)
+    student_count.short_description = "Talabalar"
 
+    def status_tag(self, obj):
+        color = 'green' if obj.status == 'active' else 'grey'
+        return format_html('<span style="background: {}; color: white; padding: 3px 10px; border-radius: 10px;">{}</span>', color, obj.get_status_display())
+    status_tag.short_description = "Status"
 
-# ==================== LESSON ADMIN ====================
-@admin.register(LessonTime)
-class LessonTimeAdmin(admin.ModelAdmin):
-    list_display = ('id', 'name', 'code', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('name', 'code')
-    readonly_fields = ('created_at',)
+# ==================== FINANCE (Transactions) ====================
 
+@admin.register(StudentTarnsactions)
+class StudentTarnsactionsAdmin(admin.ModelAdmin):
+    list_display = ('student', 'transaction_type_display', 'amount_display', 'payment_type', 'transaction_date', 'accepted_by')
+    list_filter = ('transaction_type', 'payment_type', 'branch', 'transaction_date')
+    search_fields = ('student__full_name', 'comment')
+    date_hierarchy = 'transaction_date' # Vaqt bo'yicha qulay navigatsiya
 
-@admin.register(LessonSchedule)
-class LessonScheduleAdmin(admin.ModelAdmin):
-    list_display = ('id', 'group', 'day_type', 'start_time', 'end_time', 'created_at')
-    list_filter = ('day_type', 'created_at')
-    search_fields = ('group__name',)
-    readonly_fields = ('created_at',)
+    def transaction_type_display(self, obj):
+        colors = {'payment': 'green', 'refund': 'red', 'discount': 'blue'}
+        return format_html('<span style="color: {};">{}</span>', colors.get(obj.transaction_type, 'black'), obj.get_transaction_type_display())
 
+    def amount_display(self, obj):
+        return format_html('<b>{}</b>', obj.amount)
 
-@admin.register(Exams)
-class ExamsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'group', 'title', 'exam_date', 'min_score', 'max_score', 'created_by', 'created_at')
-    list_filter = ('exam_date', 'created_at')
-    search_fields = ('title', 'group__name', 'description')
-    readonly_fields = ('created_at',)
+# ==================== ATTENDANCE (Davomat) ====================
 
+@admin.register(Attendence)
+class AttendenceAdmin(admin.ModelAdmin):
+    list_display = ('student_name', 'group_name', 'lesson_date', 'status_icon', 'marked_by')
+    list_filter = ('lesson_date', 'is_present', 'branch')
 
-@admin.register(ExamResults)
-class ExamResultsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'exam', 'student', 'score', 'created_by', 'created_at')
-    list_filter = ('created_at',)
-    search_fields = ('exam__title', 'student__full_name', 'comment')
-    readonly_fields = ('created_at',)
+    def student_name(self, obj):
+        return obj.student_group.student.full_name
 
+    def group_name(self, obj):
+        return obj.student_group.group.name
 
-# ==================== TEACHER ADMIN ====================
-@admin.register(TeacherSalaryRules)
-class TeacherSalaryRulesAdmin(admin.ModelAdmin):
-    list_display = ('id', 'teacher', 'percent_per_student', 'fixed_bonus', 'effective_from', 'effective_to', 'created_at')
-    list_filter = ('effective_from', 'effective_to', 'created_at')
-    search_fields = ('teacher__username',)
-    readonly_fields = ('created_at',)
+    def status_icon(self, obj):
+        if obj.is_present:
+            return format_html('<span style="color: green; font-size: 20px;">✔</span>')
+        return format_html('<span style="color: red; font-size: 20px;">✘</span>')
+    status_icon.short_description = "Bor/Yo'q"
 
+# ==================== ONLINE LESSONS ====================
 
-@admin.register(TeacherSalaryPayments)
-class TeacherSalaryPaymentsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'teacher', 'amount', 'payment_date', 'payment_type', 'created_at')
-    list_filter = ('payment_type', 'payment_date', 'created_at')
-    search_fields = ('teacher__username',)
-    readonly_fields = ('created_at',)
+@admin.register(OnlineLesson)
+class OnlineLessonAdmin(admin.ModelAdmin):
+    list_display = ('title', 'group', 'content_type', 'lesson_date', 'is_published')
+    list_filter = ('content_type', 'is_published', 'group')
+    search_fields = ('title', 'description')
 
+# ==================== QOLGANLARINI ODDIY RO'YXATGA OLAMIZ ====================
 
-@admin.register(TeacherSalaryCalculations)
-class TeacherSalaryCalculationsAdmin(admin.ModelAdmin):
-    list_display = ('id', 'teacher', 'group', 'month', 'student_count', 'percent', 'total_amount', 'calculated_at', 'created_at')
-    list_filter = ('month', 'calculated_at', 'created_at')
-    search_fields = ('teacher__username', 'group__name')
-    readonly_fields = ('created_at',)
+@admin.register(Course)
+class CourseAdmin(admin.ModelAdmin):
+    list_display = ('name', 'monthly_price', 'lesson_month', 'code')
+
+@admin.register(Room)
+class RoomAdmin(admin.ModelAdmin):
+    list_display = ('name', 'capacity')
+
+admin.site.register(StudentBalances)
+admin.site.register(LessonSchedule)
+admin.site.register(Exams)
+admin.site.register(ExamResults)
+admin.site.register(LeaveReason)
+admin.site.register(StudentFreezes)

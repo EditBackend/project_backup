@@ -7,8 +7,15 @@ from accounts.models import Employee
 class LessonTime(BaseModel):
     name = models.CharField(max_length=250)
     code = models.CharField(max_length=200, blank=True)
-class LessonSchedule(BaseModel):
 
+class LessonSchedule(BaseModel):
+    teacher = models.ForeignKey(
+        Employee,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="lesson_schedules"
+    )
     DAY_TYPE = (
         ("odd", "Odd days"),
         ("even", "Even days"),
@@ -21,9 +28,6 @@ class LessonSchedule(BaseModel):
 
 
 # ============ YANGI MODEL: OnlineLesson ============
-
-
-
 
 
 class OnlineLesson(BaseModel):

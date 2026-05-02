@@ -26,21 +26,24 @@ SECRET_KEY = 'django-insecure-jjm*+u=j7_!%n5pvy)@i0qh=p%h=8qufv3)*5kbaoiib&#_dv=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["Hacker99000.pythonanywhere.com", "127.0.0.1"]
 
 
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # another apps
+    # DRF va JWT
     'rest_framework',
     'drf_spectacular',
+    'rest_framework_simplejwt',
+    'rest_framework.authtoken',
     # apps
     "core",
     "accounts",
@@ -51,10 +54,11 @@ INSTALLED_APPS = [
     "finance",
     "organizations",
     "tasks",
-'rest_framework_simplejwt',
+    "corsheaders",
 ]
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -62,6 +66,11 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = [
+    "https://example.com",
+    "https://www.example.com",
 ]
 
 ROOT_URLCONF = 'smartEdu.urls'
@@ -133,9 +142,9 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 
-STATICFILES_DIR = [
-    BASE_DIR / "static"
-]
+STATICFILES_DIRS = []
+
+# Tuple emas, stringga aylantiramiz
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 STATICFILES_FINDERS = [
@@ -158,11 +167,13 @@ REST_FRAMEWORK = {
         'rest_framework.permissions.IsAuthenticated',  # hozir hamma endpointlar token talab qiladi
     ),
 }
+
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),  # token 1 soat ishlaydi
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),     # refresh token 1 kun
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=365*10),  # 10 yil ishlaydi
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=365*20), # 20 yil ishlaydi
+    'ROTATE_REFRESH_TOKENS': False,                  # tokenni yangilash shart emas
+    'BLACKLIST_AFTER_ROTATION': False,               # blacklist ishlatilmaydi
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 SPECTACULAR_SETTINGS = {
@@ -171,14 +182,19 @@ SPECTACULAR_SETTINGS = {
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
 
-    # AUTH
+    # Swagger va schema uchun ruxsat (eng muhim!)
+    "SERVE_PERMISSIONS": ["rest_framework.permissions.AllowAny"],
+    "SERVE_AUTHENTICATION": [],
+
+    # Auth sozlamalari
     "SECURITY": [{"bearerAuth": []}],
     "COMPONENT_SPLIT_REQUEST": True,
 
-    # UI sozlamalar
+    # Swagger UI sozlamalari
     "SWAGGER_UI_SETTINGS": {
         "deepLinking": True,
         "persistAuthorization": True,
         "displayRequestDuration": True,
     },
+
 }

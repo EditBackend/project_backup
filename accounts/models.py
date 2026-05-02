@@ -41,22 +41,28 @@ class User(AbstractUser, PermissionsMixin):
                               null=True,
                               blank=True)
 
-    branch_id = models.ForeignKey(Branch, on_delete=models.SET_NULL,
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL,
                                   null=True, blank=True, related_name="branch")
-    organization_id = models.ForeignKey(Organizations, on_delete=models.CASCADE,
+    organization = models.ForeignKey(Organizations, on_delete=models.CASCADE,
                                         null=True, blank=True, related_name="organization")
+
     objects = UserManager()
     USERNAME_FIELD = "username"
 
 
 class Employee(BaseModel):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee")
-
+    email = models.EmailField(blank=True, null=True)
     photo = models.ImageField(upload_to=employee_avatar_upload_path,
                               null=True,
                               blank=True)
-    position = models.CharField(max_length=100)
+    position = models.CharField(max_length=100,
+                              null=True,
+                              blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
     is_active = models.BooleanField(default=True)
+    is_approved = models.BooleanField(default=False)
 
 class Role(BaseModel):
     name = models.CharField(max_length=100)
@@ -66,5 +72,5 @@ class RolePermission(models.Model):
     permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name="permission")
 
 class UserRole(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="user")
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_roles')
     role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="UserRole_role")

@@ -1,10 +1,10 @@
 from django.urls import path
 
 from .views import (
-    StudentViewSet, StudentGroupViewSet, StudentPricingViewSet,
+    StudentViewSet,  StudentPricingViewSet,
     StudentBalancesViewSet, StudentTarnsactionsViewSet, LeaveReasonViewSet,
     StudentGroupLeavesViewSet, StudentFreezesViewSet, StudentBalanceHistoryViewSet,
-    AttendenceViewSet, RoomViewSet, CourseViewSet, GroupViewSet,
+    AttendenceViewSet, RoomViewSet, CourseViewSet,
     GroupTeacherViewSet, LessonTimeViewSet, LessonScheduleViewSet,
     ExamsViewSet, ExamResultsViewSet, ExamResultsView,
     TeacherSalaryRulesViewSet, TeacherSalaryPaymentsViewSet, TeacherSalaryCalculationsViewSet, GroupHistoryView,
@@ -14,115 +14,111 @@ from .views import (
     GroupsExportView, StudentsExportView, ExportHistoryView, ExportStatisticsView, ExamsListView, ExamCreateView,
     ExamDetailView, ExamGradingView, ExamStatisticsView, ExamParticipantsSettingsView, OnlineLessonsListView,
     SetLessonTopicView, UpdateLessonTopicView, GroupLessonsCalendarView, BulkSetLessonTopicsView, PublishLessonView,
-    LessonStatisticsView, OnlineLessonDetailView,OnlineLessonCreateView
+    LessonStatisticsView, OnlineLessonDetailView,OnlineLessonCreateView,TalabalarMalumotView,GroupDetailUpdateDeleteView,GroupListCreateView,StudentGroupListCreateAPIView, StudentGroupDetailAPIView
 )
 from . import views
 urlpatterns = [
+    path('talabalar/', TalabalarMalumotView.as_view(), name='talabalar-list-create'),
+
+    # Bitta talaba uchun (update, delete)
+    path('talabalar/<uuid:pk>/', TalabalarMalumotView.as_view(), name='talabalar-detail'),
+
     # ==================== STUDENT URLs ====================
     path('students/', StudentViewSet.as_view({'get': 'list', 'post': 'create'}), name='student-list'),
-    path('students/<int:pk>/',
+    path('students/<uuid:pk>/',
          StudentViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='student-detail'),
 
-    path('student-groups/', StudentGroupViewSet.as_view({'get': 'list', 'post': 'create'}), name='studentgroup-list'),
-    path('student-groups/<int:pk>/', StudentGroupViewSet.as_view(
-        {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='studentgroup-detail'),
+    # Talabalar va guruhlar ro'yxati
+    path('student-groups/', StudentGroupListCreateAPIView.as_view(), name='student-group-list'),
+
+    # ID orqali boshqarish (UUID bo'lsa <uuid:pk>, raqam bo'lsa <uuid:pk>)
+    path('student-groups/<uuid:pk>/', StudentGroupDetailAPIView.as_view(), name='student-group-detail'),
 
     path('student-pricings/', StudentPricingViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studentpricing-list'),
-    path('student-pricings/<int:pk>/', StudentPricingViewSet.as_view(
+    path('student-pricings/<uuid:pk>/', StudentPricingViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studentpricing-detail'),
 
     path('student-balances/', StudentBalancesViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studentbalances-list'),
-    path('student-balances/<int:pk>/', StudentBalancesViewSet.as_view(
+    path('student-balances/<uuid:pk>/', StudentBalancesViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studentbalances-detail'),
 
     path('student-transactions/', StudentTarnsactionsViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studenttransactions-list'),
-    path('student-transactions/<int:pk>/', StudentTarnsactionsViewSet.as_view(
+    path('student-transactions/<uuid:pk>/', StudentTarnsactionsViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studenttransactions-detail'),
 
     path('leave-reasons/', LeaveReasonViewSet.as_view({'get': 'list', 'post': 'create'}), name='leavereason-list'),
-    path('leave-reasons/<int:pk>/', LeaveReasonViewSet.as_view(
+    path('leave-reasons/<uuid:pk>/', LeaveReasonViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='leavereason-detail'),
 
     path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studentgroupleaves-list'),
-    path('student-group-leaves/<int:pk>/', StudentGroupLeavesViewSet.as_view(
+    path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studentgroupleaves-detail'),
 
     path('student-freezes/', StudentFreezesViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studentfreezes-list'),
-    path('student-freezes/<int:pk>/', StudentFreezesViewSet.as_view(
+    path('student-freezes/<uuid:pk>/', StudentFreezesViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studentfreezes-detail'),
 
     path('student-balance-history/', StudentBalanceHistoryViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='studentbalancehistory-list'),
-    path('student-balance-history/<int:pk>/', StudentBalanceHistoryViewSet.as_view(
+    path('student-balance-history/<uuid:pk>/', StudentBalanceHistoryViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='studentbalancehistory-detail'),
 
     path('attendences/', AttendenceViewSet.as_view({'get': 'list', 'post': 'create'}), name='attendence-list'),
-    path('attendences/<int:pk>/', AttendenceViewSet.as_view(
+    path('attendences/<uuid:pk>/', AttendenceViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='attendence-detail'),
 
     # ==================== GROUP URLs ====================
     path('rooms/', RoomViewSet.as_view({'get': 'list', 'post': 'create'}), name='room-list'),
-    path('rooms/<int:pk>/',
+    path('rooms/<uuid:pk>/',
          RoomViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='room-detail'),
 
     path('courses/', CourseViewSet.as_view({'get': 'list', 'post': 'create'}), name='course-list'),
-    path('courses/<int:pk>/',
+    path('courses/<uuid:pk>/',
          CourseViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='course-detail'),
 
-    path('groups/', GroupViewSet.as_view({'get': 'list', 'post': 'create'}), name='group-list'),
-    path('groups/<int:pk>/',
-         GroupViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='group-detail'),
+
 
     path('group-teachers/', GroupTeacherViewSet.as_view({'get': 'list', 'post': 'create'}), name='groupteacher-list'),
-    path('group-teachers/<int:pk>/', GroupTeacherViewSet.as_view(
+    path('group-teachers/<uuid:pk>/', GroupTeacherViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='groupteacher-detail'),
 
     # ==================== GROUP URLS ====================
 
-    # Guruhlar ro'yxati va yaratish
-    # GET: /api/groups/ - Barcha guruhlarni olish (filter: status, course, room, search)
-    # POST: /api/groups/ - Yangi guruh yaratish
-    path('groups/', views.group_list_create, name='group-list-create'),
+    path('groups/', GroupListCreateView.as_view(), name='group-list-create'),
 
-    # Bitta guruh: detail, update, delete
-    # GET: /api/groups/<id>/ - Guruh detallari
-    # PUT: /api/groups/<id>/ - Guruhni to'liq yangilash
-    # PATCH: /api/groups/<id>/ - Guruhni qisman yangilash
-    # DELETE: /api/groups/<id>/ - Guruhni arxivlash
-    path('groups/<int:pk>/', views.group_detail_update_delete, name='group-detail'),
+
+    path('groups/<uuid:pk>/', GroupDetailUpdateDeleteView.as_view(), name='group-detail'),
 
     # ==================== GROUP TEACHER URLS ====================
 
     # Guruh o'qituvchilari ro'yxati va qo'shish
     # GET: /api/groups/<group_id>/teachers/ - Guruh o'qituvchilarini olish
     # POST: /api/groups/<group_id>/teachers/ - Guruhga o'qituvchi qo'shish
-    path('groups/<int:group_pk>/teachers/', views.group_teacher_list_create, name='group-teacher-list'),
+    path('groups/<uuid:group_pk>/teachers/', views.group_teacher_list_create, name='group-teacher-list'),
 
     # Guruh o'qituvchisi: detail, update, delete
     # GET: /api/groups/<group_id>/teachers/<id>/ - O'qituvchi ma'lumotlari
     # PUT: /api/groups/<group_id>/teachers/<id>/ - O'qituvchi ma'lumotini to'liq yangilash
     # PATCH: /api/groups/<group_id>/teachers/<id>/ - O'qituvchi ma'lumotini qisman yangilash
     # DELETE: /api/groups/<group_id>/teachers/<id>/ - O'qituvchini guruhdan o'chirish
-    path('groups/<int:group_pk>/teachers/<int:pk>/', views.group_teacher_detail_update_delete,
+    path('groups/<uuid:group_pk>/teachers/<uuid:pk>/', views.group_teacher_detail_update_delete,
          name='group-teacher-detail'),
 
     # ==================== HELPER URLS ====================
@@ -145,23 +141,23 @@ urlpatterns = [
 
     # ==================== LESSON URLs ====================
     path('lesson-times/', LessonTimeViewSet.as_view({'get': 'list', 'post': 'create'}), name='lessontime-list'),
-    path('lesson-times/<int:pk>/', LessonTimeViewSet.as_view(
+    path('lesson-times/<uuid:pk>/', LessonTimeViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='lessontime-detail'),
 
     path('lesson-schedules/', LessonScheduleViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='lessonschedule-list'),
-    path('lesson-schedules/<int:pk>/', LessonScheduleViewSet.as_view(
+    path('lesson-schedules/<uuid:pk>/', LessonScheduleViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='lessonschedule-detail'),
 
     path('exams/', ExamsViewSet.as_view({'get': 'list', 'post': 'create'}), name='exams-list'),
-    path('exams/<int:pk>/',
+    path('exams/<uuid:pk>/',
          ExamsViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='exams-detail'),
 
     path('exam-results/', ExamResultsViewSet.as_view({'get': 'list', 'post': 'create'}), name='examresults-list'),
-    path('exam-results/<int:pk>/', ExamResultsViewSet.as_view(
+    path('exam-results/<uuid:pk>/', ExamResultsViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='examresults-detail'),
 
@@ -169,48 +165,48 @@ urlpatterns = [
     # ==================== TEACHER URLs ====================
     path('teacher-salary-rules/', TeacherSalaryRulesViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='teachersalaryrules-list'),
-    path('teacher-salary-rules/<int:pk>/', TeacherSalaryRulesViewSet.as_view(
+    path('teacher-salary-rules/<uuid:pk>/', TeacherSalaryRulesViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='teachersalaryrules-detail'),
 
     path('teacher-salary-payments/', TeacherSalaryPaymentsViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='teachersalarypayments-list'),
-    path('teacher-salary-payments/<int:pk>/', TeacherSalaryPaymentsViewSet.as_view(
+    path('teacher-salary-payments/<uuid:pk>/', TeacherSalaryPaymentsViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='teachersalarypayments-detail'),
 
     path('teacher-salary-calculations/', TeacherSalaryCalculationsViewSet.as_view({'get': 'list', 'post': 'create'}),
          name='teachersalarycalculations-list'),
-    path('teacher-salary-calculations/<int:pk>/', TeacherSalaryCalculationsViewSet.as_view(
+    path('teacher-salary-calculations/<uuid:pk>/', TeacherSalaryCalculationsViewSet.as_view(
         {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
          name='teachersalarycalculations-detail')    ,
 
 
     # 1. Guruh to'liq ma'lumotlari
-    path('groups/<int:pk>/info/', views.group_full_info, name='group-info'),
+    path('groups/<uuid:pk>/info/', views.group_full_info, name='group-info'),
 
     # 2. Davomat
-    path('groups/<int:group_pk>/attendance/', views.attendance_list_create, name='attendance'),
+    path('groups/<uuid:group_pk>/attendance/', views.attendance_list_create, name='attendance'),
 
     # 3. O'quvchilar ro'yxati
-    path('groups/<int:group_pk>/students/', views.students_list, name='students-list'),
+    path('groups/<uuid:group_pk>/students/', views.students_list, name='students-list'),
 
     # 5. Guruh operatsiyalari
-    path('groups/<int:group_pk>/add-student/', views.add_student, name='add-student'),
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/', views.remove_student, name='remove-student'),
-    path('groups/<int:group_pk>/send-sms/', views.send_sms, name='send-sms'),
+    path('groups/<uuid:group_pk>/add-student/', views.add_student, name='add-student'),
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/', views.remove_student, name='remove-student'),
+    path('groups/<uuid:group_pk>/send-sms/', views.send_sms, name='send-sms'),
 
     # 6. Chegirmalar
     path('discounts/', views.discount_list_create, name='discounts'),
-    path('discounts/<int:pk>/', views.discount_detail, name='discount-detail'),
+    path('discounts/<uuid:pk>/', views.discount_detail, name='discount-detail'),
 
     # 7. Imtihonlar
     path('exams/', views.exam_list_create, name='exams'),
-    path('exams/<int:pk>/', views.exam_detail, name='exam-detail'),
-    path('exams/<int:exam_pk>/results/', views.exam_results, name='exam-results'),
+    path('exams/<uuid:pk>/', views.exam_detail, name='exam-detail'),
+    path('exams/<uuid:exam_pk>/results/', views.exam_results, name='exam-results'),
 
     # 8. Tarix
-    path('groups/<int:group_pk>/history/', views.group_history, name='group-history'),
+    path('groups/<uuid:group_pk>/history/', views.group_history, name='group-history'),
 
     # ==================== YANGI: O'QUVCHI QIDIRISH VA FAOLLASHTIRISH ====================
 
@@ -221,15 +217,15 @@ urlpatterns = [
     # 2. Guruhga talaba qo'shish (yangilangan)
     # POST /api/groups/<group_id>/add-student/
     # Bu URL allaqachon bor, faqat viewni almashtiring
-    path('groups/<int:group_pk>/add-student/', views.add_student_to_group, name='add-student-to-group'),
+    # path('groups/<uuid:group_pk>/add-student/', views.add_student_to_group, name='add-student-to-group'),
 
     # 3. Talabani faollashtirish (balansga pul qo'shish)
     # PUT /api/students/<student_id>/activate/
-    path('students/<int:student_pk>/activate/', views.activate_student, name='activate-student'),
+    path('students/<uuid:student_pk>/activate/', views.activate_student, name='activate-student'),
 
     # 4. Talaba balansi va holati
     # GET /api/students/<student_id>/balance-status/
-    path('students/<int:student_pk>/balance-status/', views.student_balance_status, name='student-balance-status'),
+    path('students/<uuid:student_pk>/balance-status/', views.student_balance_status, name='student-balance-status'),
 
 # ============ ONLAYN DARSLAR URLs ============
 
@@ -239,53 +235,53 @@ urlpatterns = [
     # ... mavjud URLlar
 
     # ONLAYN DARSLAR
-    path('groups/<int:group_pk>/online-lessons/', views.group_online_lessons, name='group-online-lessons'),
-    path('online-lessons/<int:pk>/', views.online_lesson_detail, name='online-lesson-detail'),
-    path('online-lessons/<int:pk>/publish/', views.publish_lesson, name='publish-lesson'),
-    path('online-lessons/<int:pk>/unpublish/', views.unpublish_lesson, name='unpublish-lesson'),
+    path('groups/<uuid:group_pk>/online-lessons/', views.group_online_lessons, name='group-online-lessons'),
+    path('online-lessons/<uuid:pk>/', views.online_lesson_detail, name='online-lesson-detail'),
+    path('online-lessons/<uuid:pk>/publish/', views.publish_lesson, name='publish-lesson'),
+    path('online-lessons/<uuid:pk>/unpublish/', views.unpublish_lesson, name='unpublish-lesson'),
     # Chegirma yaratish
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount/',
          views.create_student_discount,
          name='create-student-discount'),
 
     # Chegirma ko'rish
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount/',
          views.get_student_discount,
          name='get-student-discount'),
 
     # Chegirma yangilash
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount/',
          views.update_student_discount,
          name='update-student-discount'),
 
     # Chegirma bekor qilish
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount/',
          views.delete_student_discount,
          name='delete-student-discount'),
 
     # To'lov farqini hisoblash
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount/calculate/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount/calculate/',
          views.calculate_payment_difference,
          name='calculate-payment-difference'),
     # DARS SANASI BOSHQARUVI
 
     # Guruh darslarini olish
-    path('groups/<int:group_pk>/lessons/',
+    path('groups/<uuid:group_pk>/lessons/',
          views.group_lessons,
          name='group-lessons'),
 
     # Tanlangan darsni aniqlash
-    path('groups/<int:group_pk>/lessons/<int:lesson_pk>/',
+    path('groups/<uuid:group_pk>/lessons/<uuid:lesson_pk>/',
          views.lesson_detail,
          name='lesson-detail'),
 
     # Dars sanasini ko'chirish
-    path('groups/<int:group_pk>/lessons/<int:lesson_pk>/move-date/',
+    path('groups/<uuid:group_pk>/lessons/<uuid:lesson_pk>/move-date/',
          views.move_lesson_date,
          name='move-lesson-date'),
 
     # Yangi sana band emasligini tekshirish
-    path('groups/<int:group_pk>/lessons/check-availability/',
+    path('groups/<uuid:group_pk>/lessons/check-availability/',
          views.check_time_availability,
          name='check-time-availability'),
     # TARK ETGAN TALABALAR HISOBOTI
@@ -308,36 +304,36 @@ urlpatterns = [
          views.courses_list,
          name='courses-list'),
     # Darsni bekor qilish
-    path('groups/<int:group_pk>/lessons/<int:lesson_pk>/cancel/',
+    path('groups/<uuid:group_pk>/lessons/<uuid:lesson_pk>/cancel/',
          views.cancel_lesson,
          name='cancel-lesson'),
 
     # Bekor qilingan darslar ro'yxati
-    path('groups/<int:group_pk>/cancelled-lessons/',
+    path('groups/<uuid:group_pk>/cancelled-lessons/',
          views.cancelled_lessons_list,
          name='cancelled-lessons-list'),
 
     # Darsni qayta tiklash
-    path('cancelled-lessons/<int:audit_pk>/restore/',
+    path('cancelled-lessons/<uuid:audit_pk>/restore/',
          views.restore_lesson,
          name='restore-lesson'),
     # Chegirma belgilash
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount-price/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount-price/',
          views.set_discount_price,
          name='set-discount-price'),
 
     # Chegirmani ko'rish
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount-price/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount-price/',
          views.get_student_discount,
          name='get-student-discount'),
 
     # Chegirmani bekor qilish
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount-price/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount-price/',
          views.cancel_discount,
          name='cancel-discount'),
 
     # Chegirmalar tarixi
-    path('groups/<int:group_pk>/students/<int:student_group_pk>/discount-price/history/',
+    path('groups/<uuid:group_pk>/students/<uuid:student_group_pk>/discount-price/history/',
          views.discount_history,
          name='discount-history'),
     # Guruh to'liq tarixi - barcha harakatlar bitta endpointda
@@ -434,10 +430,10 @@ urlpatterns = [
     # Darslar statistikasi
     path('lessons/<uuid:group_id>/statistics/', LessonStatisticsView.as_view(), name='lesson-statistics'),
     path("online-lessons/", OnlineLessonCreateView.as_view(), name="online-lesson-list"),
-    path("online-lessons/<int:pk>/", OnlineLessonDetailView.as_view(), name="online-lesson-detail"),
+    path("online-lessons/<uuid:pk>/", OnlineLessonDetailView.as_view(), name="online-lesson-detail"),
 
     # ── RO'YXAT + YARATISH
-    path('students/', views.student_list_create, name='student-list-create'),
+    path('students/create/list/', views.student_list_create, name='student-list-create'),
 
     # ── FILTER OPTIONS
     path('students/filter-options/', views.student_filter_options, name='student-filter-options'),
@@ -446,24 +442,24 @@ urlpatterns = [
     path('students/export/', views.student_export_excel, name='student-export'),
 
     # ── DETAIL / TAHRIRLASH / O'CHIRISH
-    path('students/<int:pk>/', views.student_detail_update_delete, name='student-detail'),
+    path('students/<uuid:pk>/crud/', views.student_detail_update_delete, name='student-detail'),
 
     # ── TABLAR
-    path('students/<int:pk>/groups/',       views.student_groups_tab,       name='student-groups-tab'),
-    path('students/<int:pk>/transactions/', views.student_transactions_tab, name='student-transactions-tab'),
-    path('students/<int:pk>/sms/',          views.student_sms_tab,          name='student-sms-tab'),
-    path('students/<int:pk>/calls/',        views.student_calls_tab,        name='student-calls-tab'),
-    path('students/<int:pk>/history/',      views.student_history_tab,      name='student-history-tab'),
-    path('students/<int:pk>/lead-history/', views.student_lead_history_tab, name='student-lead-tab'),
-    path('students/<int:pk>/coin-history/', views.student_coin_history_tab, name='student-coin-tab'),
+    path('students/<uuid:pk>/groups/',       views.student_groups_tab,       name='student-groups-tab'),
+    path('students/<uuid:pk>/transactions/', views.student_transactions_tab, name='student-transactions-tab'),
+    path('students/<uuid:pk>/sms/',          views.student_sms_tab,          name='student-sms-tab'),
+    path('students/<uuid:pk>/calls/',        views.student_calls_tab,        name='student-calls-tab'),
+    path('students/<uuid:pk>/history/',      views.student_history_tab,      name='student-history-tab'),
+    path('students/<uuid:pk>/lead-history/', views.student_lead_history_tab, name='student-lead-tab'),
+    path('students/<uuid:pk>/coin-history/', views.student_coin_history_tab, name='student-coin-tab'),
 
     # ── AMALLAR
-    path('students/<int:pk>/payment/',           views.student_add_payment,       name='student-payment'),
-    path('students/<int:pk>/add-to-group/',      views.student_add_to_group,      name='student-add-group'),
-    path('students/<int:pk>/remove-from-group/', views.student_remove_from_group, name='student-remove-group'),
-    path('students/<int:pk>/freeze/',            views.student_freeze,            name='student-freeze'),
-    path('students/<int:pk>/unfreeze/',          views.student_unfreeze,          name='student-unfreeze'),
-    path('students/<int:pk>/send-sms/',          views.student_send_sms,          name='student-send-sms'),
+    path('students/<uuid:pk>/payment/',           views.student_add_payment,       name='student-payment'),
+    path('students/<uuid:pk>/add-to-group/',      views.student_add_to_group,      name='student-add-group'),
+    path('students/<uuid:pk>/remove-from-group/', views.student_remove_from_group, name='student-remove-group'),
+    path('students/<uuid:pk>/freeze/',            views.student_freeze,            name='student-freeze'),
+    path('students/<uuid:pk>/unfreeze/',          views.student_unfreeze,          name='student-unfreeze'),
+    path('students/<uuid:pk>/send-sms/',          views.student_send_sms,          name='student-send-sms'),
 
 
 
@@ -490,15 +486,15 @@ urlpatterns = [
     # 5. Talaba qidirish (guruhga talaba qo'shish oynasida eng muhim)
     path('v1/students/search/', views.StudentSearchView.as_view(), name='student-search'),
     # 7. Talabaga to'lov qo'shish (To'lov oynasi)
-    path('v1/students/<uuid:student_id>/add-payment/', views.StudentAddPaymentView.as_view(), name='add-payment'),
+    path('students/<uuid:student_id>/add-payment/', views.StudentAddPaymentView.as_view(), name='add-payment'),
 
     # 6. Talaba kartasi (o'ng tarafdagi panel)
-    path('v1/students/<uuid:pk>/', views.StudentDetailView.as_view(), name='student-detail'),
+    path('v1/students/<uuid:pk>/detail/', views.StudentDetailView.as_view(), name='student-detail'),
 
 
 
     # 8. Guruh davomati (davomat sahifasi)
-    path('v1/groups/<uuid:group_id>/attendance/', views.GroupAttendanceView.as_view(), name='group-attendance'),
+    path('v1/groups/<uuid:group_id>/attendance/', views.GroupAttendanceView.as_view(), name='groupbirbalo'),
 
     # 9. Davomatni saqlash (bir kunga)
     path('v1/groups/<uuid:group_id>/attendance/save/', views.AttendanceSaveView.as_view(), name='save-attendance'),
@@ -531,7 +527,7 @@ urlpatterns = [
 
 
 
-    path('v1/groups/<uuid:group_id>/', views.GroupUpdateView.as_view(), name='group-update'),
+    path('v1/groups/<uuid:group_id>/update/', views.GroupUpdateView.as_view(), name='group-update'),
 
     # 17. Guruhga SMS yuborish (Guruhga SMS yuborish oynasi)
     # POST /v1/groups/<uuid:group_id>/send-sms/

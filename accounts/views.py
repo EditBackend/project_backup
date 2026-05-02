@@ -1,10 +1,11 @@
-from rest_framework import viewsets, status
+from rest_framework import viewsets
 from rest_framework.response import Response
+from rest_framework import status
 from drf_spectacular.utils import extend_schema
 from .models import User, Employee, Role, RolePermission, UserRole
 from .serializers import (
-    UserSerializer, EmployeeSerializer, RoleSerializer,
-    RolePermissionSerializer, UserRoleSerializer,
+    UserSerializer, EmployeeCreateSerializer, RoleSerializer,
+    RolePermissionSerializer, UserRoleSerializer,EmployeeSerializer,EmployeeUpdateSerializer
 )
 from audit.models import AuditLog
 
@@ -70,10 +71,36 @@ class UserViewSet(viewsets.ModelViewSet):
 #  EMPLOYEE
 # ════════════════════════════════════════════════════════════════
 
+
+
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
+from .serializers import RegistrationSerializer
+
+@api_view(['POST'])
+@permission_classes([AllowAny]) # Hamma ariza topshira olishi kerak
+def registration_view(request):
+    serializer = RegistrationSerializer(data=request.data)
+    if serializer.is_valid():
+        serializer.save()
+        return Response({
+            "message": "Arizangiz qabul qilindi. Admin tasdiqlashini kuting."
+        }, status=status.HTTP_201_CREATED)
+    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
 @extend_schema(tags=["Employee - Barcha ishchilarni ko'rish"])
 class EmployeeViewSet(viewsets.ModelViewSet):
-    queryset         = Employee.objects.all()
+    queryset = Employee.objects.select_related('user').all()   # Bu yerda select_related yaxshi
     serializer_class = EmployeeSerializer
+
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return EmployeeCreateSerializer
+        elif self.action in ['update', 'partial_update']:
+            return EmployeeUpdateSerializer
+        return EmployeeSerializer
+
 
     def perform_create(self, serializer):
         employee = serializer.save()
@@ -83,13 +110,13 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'position': employee.position,
         }, self.request.user)
 
-    def perform_update(self, serializer):
-        old = {'position': serializer.instance.position, 'is_active': serializer.instance.is_active}
-        employee = serializer.save()
-        _log('user', employee.id, 'update', old, {
-            'position':  employee.position,
-            'is_active': employee.is_active,
-        }, self.request.user)
+    # def perform_update(self, serializer):
+    #     old = {'position': serializer.instance.position, 'is_active': serializer.instance.is_active}
+    #     employee = serializer.save()
+    #     _log('user', employee.id, 'update', old, {
+    #         'position':  employee.position,
+    #         'is_active': employee.is_active,
+    #     }, self.request.user)
 
     def perform_destroy(self, instance):
         _log('user', instance.id, 'delete', {
@@ -97,6 +124,8 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'position': instance.position,
         }, None, self.request.user)
         instance.delete()
+
+
 
 
 # ════════════════════════════════════════════════════════════════

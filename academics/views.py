@@ -4,16 +4,21 @@ from django.utils.dateparse import parse_date
 from django.shortcuts import get_object_or_404
 from django.db.models import Avg, Q
 from django.utils import timezone
+from datetime import date
 from django.http import HttpResponse
 from datetime import datetime
-
+from decimal import Decimal, InvalidOperation
 from rest_framework import viewsets, generics, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
-
+from .serializers import (
+    GroupListSerializer,
+    GroupDetailSerializer,
+    GroupCreateUpdateSerializer
+)
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
@@ -27,13 +32,16 @@ from .models import (
     LessonTime, LessonSchedule, Exams, ExamResults,
     TeacherSalaryRules, TeacherSalaryPayments, TeacherSalaryCalculations
 )
+from datetime import date  # Serializerda date.today() ishlatilgan bo'lsa
+from django.db.models import Q # Filtrlar uchun kerak
+from rest_framework.exceptions import ValidationError
 from .serializers import (
     # Online lesson
     OnlineLessonListSerializer, OnlineLessonDetailSerializer,
     OnlineLessonCreateUpdateSerializer,
     # Student
-    AddStudentToGroupSerializer, ActivateStudentSerializer, StudentSearchSerializer,
-    StudentSerializer, StudentGroupSerializer, StudentPricingSerializer,
+ ActivateStudentSerializer, StudentSearchSerializer,
+    StudentSerializer, StudentPricingSerializer,
     StudentBalancesSerializer, StudentTarnsactionsSerializer, LeaveReasonSerializer,
     StudentGroupLeavesSerializer, StudentFreezesSerializer, StudentBalanceHistorySerializer,
     AttendenceSerializer, CreateStudentDiscountSerializer, StudentDiscountSerializer,
@@ -60,7 +68,7 @@ from .serializers import (
     GroupExportFilterSerializer, GroupExportColumnsSerializer,
     StudentExportFilterSerializer, StudentExportColumnsSerializer,
     GroupExportDataSerializer, StudentExportDataSerializer,
-    ExportHistorySerializer, create_export_audit_log,
+    ExportHistorySerializer, create_export_audit_log,StudentGroupCreateUpdateSerializer,StudentGroupDetailSerializer
 )
 from accounts.models import Employee
 
@@ -92,16 +100,116 @@ def _log(entity_type, entity_id, action, old_data, new_data, user):
 # ════════════════════════════════════════════════════════════════
 
 # ── Student ──────────────────────────────────────────────────────
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from .models import StudentGroup
+from .serializers import StudentGroupDetailSerializer, StudentGroupCreateUpdateSerializer
+
+class StudentGroupListCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Barcha talaba-guruh bog'lamalarini ko'rish"""
+        queryset = StudentGroup.objects.select_related('student', 'group', 'group__course').all()
+        serializer = StudentGroupDetailSerializer(queryset, many=True)
+        return Response({
+            "success": True,
+            "data": serializer.data
+        })
+
+    def post(self, request):
+        """Talabani guruhga qo'shish"""
+        serializer = StudentGroupCreateUpdateSerializer(data=request.data)
+        if serializer.is_valid():
+            student_group = serializer.save()
+            # Yaratilgandan keyin to'liq ma'lumotni qaytarish uchun DetailSerializer ishlatamiz
+            full_data = StudentGroupDetailSerializer(student_group).data
+            return Response({
+                "success": True,
+                "message": "Talaba guruhga qo'shildi.",
+                "data": full_data
+            }, status=status.HTTP_201_CREATED)
+        return Response({"success": False, "errors": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+
+class StudentGroupDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        try:
+            return StudentGroup.objects.get(pk=pk)
+        except StudentGroup.DoesNotExist:
+            return None
+
+    def get(self, request, pk):
+        """Bitta bog'lamani ko'rish"""
+        instance = self.get_object(pk)
+        if not instance:
+            return Response({"success": False, "message": "Topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+        serializer = StudentGroupDetailSerializer(instance)
+        return Response({"success": True, "data": serializer.data})
+
+    def put(self, request, pk):
+        """To'liq yangilash"""
+        instance = self.get_object(pk)
+        if not instance:
+            return Response({"success": False, "message": "Topilmadi"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = StudentGroupCreateUpdateSerializer(instance, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "message": "Ma'lumot yangilandi."})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def patch(self, request, pk):
+        """Qisman yangilash (masalan, faqat left_at sanasini)"""
+        instance = self.get_object(pk)
+        serializer = StudentGroupCreateUpdateSerializer(instance, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"success": True, "message": "Ma'lumot qisman yangilandi."})
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+            """O'chirish va ketganlar jadvaliga yozish"""
+            instance = self.get_object(pk)
+
+            if instance:
+                # 1. StudentGroupLeaves modeliga ma'lumotni saqlaymiz
+                # Model nomini loyihangizdagidek to'g'ri import qiling
+                from academics.models.student import StudentGroupLeaves
+
+                StudentGroupLeaves.objects.create(
+                    student=instance.student,
+                    group=instance.group,
+                    leave_date=datetime.now().date(),
+                    reason="Guruhdan o'chirildi (API)",
+                    # BaseModel maydonlarini ham to'ldiramiz (xatolik bermasligi uchun)
+                    organization_id=instance.organization_id,
+                    branch_id=instance.branch_id
+                )
+
+                # 2. Keyin talabani guruhdan haqiqatda o'chiramiz
+                instance.delete()
+
+                return Response({
+                    "success": True,
+                    "message": "Talaba guruhdan o'chirildi va tarixga saqlandi."
+                }, status=status.HTTP_200_OK)
+
+            return Response({
+                "success": False,
+                "message": "Topilmadi"
+            }, status=status.HTTP_404_NOT_FOUND)
+
 
 @extend_schema(tags=["Students - Studentlar"])
 class StudentViewSet(viewsets.ModelViewSet):
     queryset         = Student.objects.all()
     serializer_class = StudentSerializer
 
-@extend_schema(tags=["StudentGroup - Student va Guruh bog'langan jadval"])
-class StudentGroupViewSet(viewsets.ModelViewSet):
-    queryset         = StudentGroup.objects.all()
-    serializer_class = StudentGroupSerializer
+
 
 @extend_schema(tags=["StudentPricing - Studentga narx belgilash"])
 class StudentPricingViewSet(viewsets.ModelViewSet):
@@ -156,10 +264,7 @@ class CourseViewSet(viewsets.ModelViewSet):
     queryset         = Course.objects.all()
     serializer_class = CourseSerializer
 
-@extend_schema(tags=["Group - Guruh"])
-class GroupViewSet(viewsets.ModelViewSet):
-    queryset         = Group.objects.all()
-    serializer_class = GroupSerializer
+
 
 @extend_schema(tags=["GroupTeacher - Guruhlarni o'qituvchilarga bog'lash"])
 class GroupTeacherViewSet(viewsets.ModelViewSet):
@@ -195,13 +300,39 @@ class LessonTimeViewSet(viewsets.ModelViewSet):
 
 @extend_schema(tags=["LessonSchedule - Dars jadvali ro'yxati"])
 class LessonScheduleViewSet(viewsets.ModelViewSet):
-    queryset         = LessonSchedule.objects.all()
-    serializer_class = LessonScheduleSerializer
+    queryset = LessonSchedule.objects.all().select_related('group', 'teacher__user')
+    serializer_class = LessonScheduleListSerializer
+
+    def perform_create(self, serializer):
+        group = serializer.validated_data.get('group')
+
+        serializer.save(
+            branch_id=group.branch_id,
+            organization_id=group.organization_id
+        )
 
 @extend_schema(tags=["ExamsView - Imtihonlar jadvali"])
 class ExamsViewSet(viewsets.ModelViewSet):
     queryset         = Exams.objects.all()
     serializer_class = ExamsSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        # 1. Tizimga kirgan User-ga bog'langan Employee (Xodim) ni topamiz
+        # Employee modelida user maydoni bor deb hisoblaymiz
+        from accounts.models import Employee # Model yo'lini tekshiring (masalan: apps.users.models)
+
+        try:
+            # User-ga tegishli xodimni qidiramiz
+            employee = Employee.objects.get(user=self.request.user)
+
+            # 2. Topilgan xodimni 'created_by' sifatida saqlaymiz
+            serializer.save(created_by=employee)
+
+        except Employee.DoesNotExist:
+            # Agar user xodimlar ro'yxatida bo'lmasa, xato qaytaramiz
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"error": "Siz xodimlar ro'yxatida yo'qsiz, imtihon yarata olmaysiz."})
 
 @extend_schema(tags=["ExamResults - Imtihonlar natijalari"])
 class ExamResultsViewSet(viewsets.ModelViewSet):
@@ -231,18 +362,31 @@ class TeacherSalaryCalculationsViewSet(viewsets.ModelViewSet):
 #  GROUP VIEWS
 # ════════════════════════════════════════════════════════════════
 
-@api_view(['GET', 'POST'])
-@permission_classes([IsAuthenticated])
-def group_list_create(request):
-    if request.method == 'GET':
-        status_filter = request.query_params.get('status')
-        course_id     = request.query_params.get('course')
-        room_id       = request.query_params.get('room')
-        search        = request.query_params.get('search')
+class GroupListCreateView(APIView):
+    permission_classes = [IsAuthenticated]
 
-        groups = Group.objects.all().select_related('course', 'room')
+    def get(self, request):
+        """Guruhlar ro'yxatini olish va filtrlash"""
+        # 1. Foydalanuvchi tashkilotini aniqlaymiz
+        employee = Employee.objects.filter(user=request.user).first()
+        if not employee:
+            return Response({'success': False, 'message': 'Xodim profili topilmadi.'}, status=400)
+
+        status_filter = request.query_params.get('status')
+        course_id = request.query_params.get('course')
+        room_id = request.query_params.get('room')
+        search = request.query_params.get('search')
+
+        # 2. FAQAT shu tashkilotga tegishli va FAQAT arxivlanmagan guruhlarni olamiz
+        # Agar front-endchi ataylab status=archived yuborsa, arxivdagilarni ko'radi
+        groups = Group.objects.filter(course__organization_id=employee.organization_id).select_related('course', 'room')
+
         if status_filter:
             groups = groups.filter(status=status_filter)
+        else:
+            # Standart holatda arxivlanganlarni ko'rsatmaymiz
+            groups = groups.exclude(status='archived')
+
         if course_id:
             groups = groups.filter(course_id=course_id)
         if room_id:
@@ -250,101 +394,121 @@ def group_list_create(request):
         if search:
             groups = groups.filter(name__icontains=search)
 
-        from .serializers import GroupListSerializer
+        serializer = GroupListSerializer(groups, many=True)
         return Response({
             'success': True,
-            'count':   groups.count(),
-            'data':    GroupListSerializer(groups, many=True).data,
+            'count': groups.count(),
+            'data': serializer.data,
         })
 
-    # ── POST ──
-    serializer = GroupCreateUpdateSerializer(data=request.data)
-    if serializer.is_valid():
-        try:
-            group = serializer.save()
-
-            # ── AuditLog ──
-            _log('group', group.id, 'create', None, {
-                'name':       group.name,
-                'course_id':  str(group.course_id),
-                'status':     group.status,
-                'start_date': str(group.start_date),
-                'end_date':   str(group.end_date),
-            }, request.user)
-
-            from .serializers import GroupDetailSerializer
-            return Response({
-                'success': True,
-                'message': 'Guruh muvaffaqiyatli yaratildi.',
-                'data':    GroupDetailSerializer(group).data,
-            }, status=status.HTTP_201_CREATED)
-
-        except ValidationError as e:
-            return Response({
-                'success': False,
-                'message': 'Validatsiya xatosi.',
-                'errors':  e.message_dict if hasattr(e, 'message_dict') else str(e),
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-    return Response({'success': False, 'message': 'Ma\'lumotlar noto\'g\'ri.',
-                     'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
-
-
-@api_view(['GET', 'PUT', 'PATCH', 'DELETE'])
-@permission_classes([IsAuthenticated])
-def group_detail_update_delete(request, pk):
-    group = get_object_or_404(Group, pk=pk)
-    from .serializers import GroupDetailSerializer
-
-    if request.method == 'GET':
-        return Response({'success': True, 'data': GroupDetailSerializer(group).data})
-
-    elif request.method in ['PUT', 'PATCH']:
-        # ── Eski ma'lumotni saqlab qo'yamiz ──
-        old_data = {
-            'name':     group.name,
-            'status':   group.status,
-            'room_id':  str(group.room_id),
-            'end_date': str(group.end_date),
-        }
-
-        partial    = request.method == 'PATCH'
-        serializer = GroupCreateUpdateSerializer(group, data=request.data, partial=partial)
+    def post(self, request):
+        """Yangi guruh yaratish"""
+        serializer = GroupCreateUpdateSerializer(data=request.data)
 
         if serializer.is_valid():
             try:
+                # Guruhni saqlash
                 group = serializer.save()
 
-                # ── AuditLog ──
-                _log('group', group.id, 'update', old_data, {
-                    'name':     group.name,
-                    'status':   group.status,
-                    'room_id':  str(group.room_id),
+                # AuditLog (Buni try ichida qoldirish yaxshi, chunki logda xato bo'lishi mumkin)
+                _log('group', group.id, 'create', None, {
+                    'name': group.name,
+                    'course_id': str(group.course_id),
+                    'status': group.status,
+                    'start_date': str(group.start_date),
                     'end_date': str(group.end_date),
                 }, request.user)
 
                 return Response({
                     'success': True,
+                    'message': 'Guruh muvaffaqiyatli yaratildi.',
+                    'data': GroupDetailSerializer(group).data,
+                }, status=status.HTTP_201_CREATED)
+
+            except ValidationError as e:
+                # Except bloki TRY bilan bir xil chiziqda (indent) bo'lishi shart!
+                return Response({
+                    'success': False,
+                    'message': 'Validatsiya xatosi.',
+                    'errors': e.message_dict if hasattr(e, 'message_dict') else str(e),
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Bu qism serializer.is_valid() False bo'lganda ishlaydi
+        return Response({
+            'success': False,
+            'message': 'Ma\'lumotlar noto\'g\'ri.',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+class GroupDetailUpdateDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk):
+        return get_object_or_404(Group, pk=pk)
+
+    def get(self, request, pk):
+        """Guruh tafsilotlarini ko'rish"""
+        group = self.get_object(pk)
+        serializer = GroupDetailSerializer(group)
+        return Response({'success': True, 'data': serializer.data})
+
+    def put(self, request, pk):
+        """Guruhni to'liq yangilash (PUT)"""
+        return self.update(request, pk, partial=False)
+
+    def patch(self, request, pk):
+        """Guruhni qisman yangilash (PATCH)"""
+        return self.update(request, pk, partial=True)
+
+    def update(self, request, pk, partial):
+        group = self.get_object(pk)
+        old_data = {
+            'name': group.name,
+            'status': group.status,
+            'room_id': str(group.room_id),
+            'end_date': str(group.end_date),
+        }
+
+        serializer = GroupCreateUpdateSerializer(group, data=request.data, partial=partial)
+        if serializer.is_valid():
+            try:
+                updated_group = serializer.save()
+
+                # AuditLog
+                _log('group', updated_group.id, 'update', old_data, {
+                    'name': updated_group.name,
+                    'status': updated_group.status,
+                    'room_id': str(updated_group.room_id),
+                    'end_date': str(updated_group.end_date),
+                }, request.user)
+
+                return Response({
+                    'success': True,
                     'message': 'Guruh muvaffaqiyatli yangilandi.',
-                    'data':    GroupDetailSerializer(group).data,
+                    'data': GroupDetailSerializer(updated_group).data,
                 })
 
             except ValidationError as e:
                 return Response({
                     'success': False,
                     'message': 'Validatsiya xatosi.',
-                    'errors':  e.message_dict if hasattr(e, 'message_dict') else str(e),
+                    'errors': e.message_dict if hasattr(e, 'message_dict') else str(e),
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-        return Response({'success': False, 'message': 'Ma\'lumotlar noto\'g\'ri.',
-                         'errors': serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'success': False,
+            'message': 'Ma\'lumotlar noto\'g\'ri.',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
-    elif request.method == 'DELETE':
-        old_status   = group.status
+    def delete(self, request, pk):
+        """Guruhni arxivlash (DELETE)"""
+        group = self.get_object(pk)
+        old_status = group.status
         group.status = 'archived'
         group.save()
 
-        # ── AuditLog ──
+        # AuditLog
         _log('group', group.id, 'update',
              {'status': old_status},
              {'status': 'archived', 'action': 'arxivlandi'},
@@ -2411,17 +2575,64 @@ class GroupCreateView(APIView):
 
 
 class GroupDetailView(APIView):
-    """Guruh batafsil ma'lumot, tahrirlash, o'chirish"""
+    """
+    Guruh batafsil ma'lumot, tahrirlash, o'chirish.
+    Xodim ma'lumotlarini olishda User modelidan foydalaniladi.
+    """
+    permission_classes = [IsAuthenticated]
 
-    def get(self, request, group_id):
-        from .serializers import GroupDetailSerializer
-        group = get_object_or_404(Group, id=group_id)
+    def _create_audit_log(self, request, entity_id, action, old_data=None, new_data=None):
+        """Audit log yaratish uchun yordamchi metod"""
+        try:
+            # Employee obyektini olish
+            employee = getattr(request.user, 'employee', None)
+
+            # Lavozimni (position) aniqlash
+            role = "Unknown"
+            if employee:
+                role = getattr(employee, 'position', "Employee")
+            elif request.user.is_superuser:
+                role = "SuperAdmin"
+
+            # Agar sizga logda xodimning ismi ham kerak bo'lsa,
+            # uni User modelidan quyidagicha olamiz:
+            user_full_name = "Noma'lum foydalanuvchi"
+            if request.user:
+                first = getattr(request.user, 'first_name', '')
+                last = getattr(request.user, 'last_name', '')
+                user_full_name = f"{first} {last}".strip() or request.user.username
+
+            # Log yaratish
+            AuditLog.objects.create(
+                organization_id=getattr(request.user, 'organization_id', None),
+                branch_id=getattr(request.user, 'branch_id', None),
+                entity_type=AuditEntityType.GROUP,
+                entity_id=entity_id,
+                action=action,
+                old_data=old_data,
+                new_action=new_data,
+                performed_by=employee,
+                performed_by_role=f"{role} ({user_full_name})" # Lavozim va Ism birgalikda
+            )
+        except Exception as e:
+            # Log xatosi asosiy amalga xalaqit bermasligi kerak
+            print(f"AuditLog xatosi: {e}")
+
+    def get(self, request, pk):
+        from academics.serializers import GroupDetailSerializer
+        group = get_object_or_404(Group, id=pk)
         return Response(GroupDetailSerializer(group).data)
 
-    def put(self, request, group_id):
-        from .serializers import GroupDetailSerializer, GroupUpdateSerializer
-        group    = get_object_or_404(Group, id=group_id)
-        old_data = {'name': group.name, 'status': group.status, 'end_date': str(group.end_date)}
+    def put(self, request, pk):
+        from academics.serializers import GroupDetailSerializer, GroupUpdateSerializer
+
+        group = get_object_or_404(Group, id=pk)
+
+        old_data = {
+            'name': group.name,
+            'status': group.status,
+            'end_date': str(group.end_date)
+        }
 
         serializer = GroupUpdateSerializer(group, data=request.data, partial=True)
         if not serializer.is_valid():
@@ -2429,34 +2640,38 @@ class GroupDetailView(APIView):
 
         serializer.save()
 
-        # ── AuditLog ──
-        _log('group', group.id, 'update', old_data, {
-            'name':     group.name,
-            'status':   group.status,
+        # Yangi ma'lumotlar
+        new_data = {
+            'name': group.name,
+            'status': group.status,
             'end_date': str(group.end_date),
-        }, request.user)
+        }
+
+        # Log yaratish chaqirig'i
+        self._create_audit_log(request, group.id, AuditAction.UPDATE, old_data, new_data)
 
         return Response({
             'message': 'Guruh muvaffaqiyatli yangilandi',
-            'group':   GroupDetailSerializer(group).data,
+            'group': GroupDetailSerializer(group).data,
         })
 
-    def delete(self, request, group_id):
-        group = get_object_or_404(Group, id=group_id)
+    def delete(self, request, pk):
+        group = get_object_or_404(Group, id=pk)
 
         has_students = StudentGroup.objects.filter(group=group, left_at__isnull=True).exists()
         if has_students:
-            return Response({'error': 'Guruhda faol talabalar bor. Avval ularni chiqaring.'},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': 'Guruhda faol talabalar bor. Avval ularni chiqaring.'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-        # ── AuditLog ──
-        _log('group', group.id, 'delete',
-             {'name': group.name, 'status': group.status},
-             None, request.user)
-
+        old_data = {'name': group.name, 'status': group.status}
+        group_id = group.id
         group_name = group.name
+
+        self._create_audit_log(request, group_id, AuditAction.DELETE, old_data)
+
         group.delete()
-        return Response({'message': f"{group_name} guruhi o'chirildi"})
+        return Response({'message': f"{group_name} guruhi o'chirildi"}, status=status.HTTP_200_OK)
 
 
 class GroupArchiveView(APIView):
@@ -2917,6 +3132,8 @@ class ExamsListView(APIView):
         })
 
 
+ # Model yo'li har xil bo'lishi mumkin, tekshiring
+
 class ExamCreateView(APIView):
     """Yangi imtihon yaratish"""
 
@@ -2926,7 +3143,17 @@ class ExamCreateView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        exam = serializer.save()
+        # 1. Tizimga kirgan User-ga bog'langan Employee-ni topamiz
+        employee = Employee.objects.filter(user=request.user).first()
+
+        if not employee:
+            return Response({
+                "error": "Siz xodimlar ro'yxatida yo'qsiz. Imtihon yarata olmaysiz!"
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. save() metodiga created_by sifatida employee-ni beramiz
+        # Bu ValueError: Cannot assign User xatosini yo'qotadi
+        exam = serializer.save(created_by=employee)
 
         # ── AuditLog ──
         _log('other', exam.id, 'create', None, {
@@ -3698,48 +3925,86 @@ def student_coin_history_tab(request, pk):
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def student_add_payment(request, pk):
-    """Body: { amount, payment_type, comment, group_id (optional) }"""
-    student      = get_object_or_404(Student, pk=pk)
-    amount       = request.data.get('amount')
-    payment_type = request.data.get('payment_type', 'cash')
-    comment      = request.data.get('comment', '')
-    group_id     = request.data.get('group_id')
+    try:
+        """Body: { amount, payment_type, comment, group_id (optional) }"""
+        student      = get_object_or_404(Student, pk=pk)
+        amount_raw   = request.data.get('amount')
+        payment_type = request.data.get('payment_type', 'cash')
+        comment      = request.data.get('comment', '') or ''
+        group_id     = request.data.get('group_id')
 
-    if not amount:
-        return Response({'error': 'amount majburiy'}, status=status.HTTP_400_BAD_REQUEST)
+        # 1. Miqdorni tekshirish
+        if not amount_raw:
+            return Response({'error': 'amount majburiy'}, status=status.HTTP_400_BAD_REQUEST)
 
-    group = get_object_or_404(Group, pk=group_id) if group_id else None
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError):
+            return Response({'error': 'amount noto‘g‘ri formatda'}, status=400)
 
-    txn = StudentTarnsactions.objects.create(
-        student=student, group=group,
-        transaction_type='payment', amount=amount,
-        payment_type=payment_type,
-        transaction_date=timezone.now(),
-        comment=comment,
-        accepted_by=request.user.employee,
-    )
+        # 2. Branch tekshiruvi
+        if not hasattr(student, 'branch') or not student.branch:
+            return Response({'error': 'Studentga branch biriktirilmagan'}, status=400)
 
-    balance_obj, _ = StudentBalances.objects.get_or_create(student=student, defaults={'balance': 0})
-    old_balance     = float(balance_obj.balance)
-    balance_obj.balance += float(amount)
-    balance_obj.save()
+        group = get_object_or_404(Group, pk=group_id) if group_id else None
 
-    # ── AuditLog ──
-    _log('payment', student.id, 'create', {'balance': old_balance}, {
-        'amount':         float(amount),
-        'payment_type':   payment_type,
-        'new_balance':    float(balance_obj.balance),
-        'comment':        comment,
-        'group_id':       str(group_id) if group_id else None,
-        'transaction_id': str(txn.id),
-    }, request.user)
+        # 3. Tranzaksiyani yaratish
+        txn = StudentTarnsactions.objects.create(
+            student=student,
+            group=group,
+            transaction_type='payment',
+            amount=amount,
+            payment_type=payment_type,
+            transaction_date=timezone.now(),
+            comment=comment,
+            accepted_by=getattr(request.user, 'employee', None),
+        )
 
-    return Response({
-        'success':        True,
-        'message':        f'+{amount} UZS to\'lov qo\'shildi',
-        'new_balance':    float(balance_obj.balance),
-        'transaction_id': str(txn.id),
-    }, status=status.HTTP_201_CREATED)
+        # 4. Balansni yangilash
+        balance_obj, _ = StudentBalances.objects.get_or_create(
+            student=student,
+            branch=student.branch,
+            defaults={'balance': Decimal('0')}
+        )
+
+        old_balance = balance_obj.balance
+        balance_obj.balance += amount
+        balance_obj.save()
+
+        # 5. AuditLog (Eng ko'p xato beradigan qism)
+        # Barcha Decimal va ID larni str() ga o'girish shart!
+        try:
+            from .utils import _log
+            _log('payment', str(student.id), 'create',
+                {'old_balance': str(old_balance)},
+                {
+                    'amount':         str(amount),
+                    'payment_type':   str(payment_type),
+                    'new_balance':    str(balance_obj.balance),
+                    'comment':        str(comment),
+                    'transaction_id': str(txn.id),
+                },
+                request.user
+            )
+        except Exception as log_error:
+            # Agar logda xato bo'lsa, asosiy amal to'xtab qolmasligi uchun
+            print(f"Log xatoligi: {log_error}")
+
+        return Response({
+            'success':        True,
+            'message':        f'+{amount} UZS to\'lov qo\'shildi',
+            'new_balance':    str(balance_obj.balance),
+            'transaction_id': str(txn.id),
+        }, status=status.HTTP_201_CREATED)
+
+    except Exception as e:
+        # Xatolikni JSON formatida qaytarish (HTML o'rniga)
+        return Response({
+            'success': False,
+            'error_type': type(e).__name__,
+            'error_message': str(e),
+            'traceback': traceback.format_exc()
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
@@ -4052,40 +4317,113 @@ class StudentSearchView(APIView):
         return Response({'success': True, 'count': students.count(),
                          'results': StudentSearchSerializer(students, many=True).data})
 
+import traceback
+from decimal import Decimal, InvalidOperation
+
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from .models import Student, StudentTarnsactions, StudentBalances
+
+
+from django.db import transaction # Tranzaksiya uchun
 
 class StudentAddPaymentView(APIView):
-    """Talabaga to'lov qo'shish"""
+    permission_classes = [IsAuthenticated]
 
     def post(self, request, student_id):
-        student = get_object_or_404(Student, pk=student_id)
-        amount  = request.data.get('amount')
+        # Butun jarayonni bitta tranzaksiyaga olamiz
+        try:
+            with transaction.atomic():
+                # 1. Talabani olish (select_for_update - balansni o'zgartirishda blokirovka qilish uchun)
+                student = get_object_or_404(Student.objects.select_for_update(), pk=student_id)
+                amount_raw = request.data.get('amount')
 
-        if not amount or float(amount) <= 0:
-            return Response({'error': "To'g'ri summa kiriting"}, status=400)
+                if amount_raw is None:
+                    return Response({'success': False, 'error': "Summani kiriting"}, status=400)
 
-        balance, _  = StudentBalances.objects.get_or_create(student=student, defaults={'balance': 0})
-        old_balance = float(balance.balance)
-        balance.balance += float(amount)
-        balance.save()
+                try:
+                    amount = Decimal(str(amount_raw))
+                    if amount <= 0: raise InvalidOperation
+                except (InvalidOperation, TypeError, ValueError):
+                    return Response({'success': False, 'error': "Musbat summa kiriting"}, status=400)
 
-        StudentTarnsactions.objects.create(
-            student=student, amount=amount,
-            transaction_type='payment',
-            payment_type=request.data.get('payment_type', 'cash'),
-            comment=request.data.get('comment', ''),
-            accepted_by=request.user.employee if hasattr(request.user, 'employee') else None,
-        )
+                # --- TAKRORLANISHDAN HIMOYA (Ixtiyoriy lekin muhim) ---
+                # Oxirgi 10 soniya ichida aynan shu summani shu talabaga kiritilganini tekshirish
+                # StudentAddPaymentView ichida:
+                check_time = timezone.now() - timezone.timedelta(seconds=30) # Vaqtni biroz uzaytirdik
+                duplicate = StudentTarnsactions.objects.filter(
+                    student=student,
+                    amount=amount,
+                    transaction_type='payment',
+                    # Agar 30 soniya ichida aynan shu summali to'lov bo'lgan bo'lsa, to'xtatamiz
+                    transaction_date__gte=check_time
+                ).exists()
 
-        # ── AuditLog ──
-        _log('payment', student.id, 'create', {'balance': old_balance}, {
-            'amount':      float(amount),
-            'new_balance': float(balance.balance),
-        }, request.user)
+                if duplicate:
+                    return Response({
+                        'success': False,
+                        'error': "To'lov allaqachon qabul qilingan yoki takroriy so'rov. 30 soniya kuting."
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                # 2. Ma'lumotlarni yig'ish
+                branch = getattr(student, 'branch', None)
+                organization = getattr(student, 'organization', None)
 
-        return Response({'success': True, 'new_balance': float(balance.balance),
-                         'message': f"+{amount} so'm qo'shildi"})
+                txn = StudentTarnsactions.objects.create(
+                    student=student,
+                    branch=branch,
+                    organization=organization,
+                    amount=amount,
+                    transaction_type='payment',
+                    payment_type=request.data.get('payment_type', 'cash'),
+                    transaction_date=timezone.now(),
+                    comment=request.data.get('comment', '') or '',
+                    accepted_by=getattr(request.user, 'employee', None),
+                )
 
+                # 3. Balansni yangilash
+                balance_obj, created = StudentBalances.objects.get_or_create(
+                    student=student,
+                    branch=branch,
+                    organization=organization,
+                    defaults={'balance': Decimal('0')}
+                )
 
+                old_balance = balance_obj.balance or Decimal('0')
+                balance_obj.balance = old_balance + amount
+                balance_obj.save()
+
+            # 6. AuditLog
+            try:
+                from .utils import _log
+                _log(
+                    'payment',
+                    str(student.id),
+                    'create',
+                    {'old_balance': str(old_balance)},
+                    {
+                        'amount': str(amount),
+                        'new_balance': str(balance_obj.balance),
+                        'transaction_id': str(txn.id)
+                    },
+                    request.user
+                )
+            except Exception:
+                pass
+
+            return Response({
+                'success': True,
+                'new_balance': str(balance_obj.balance),
+                'message': "To'lov qabul qilindi."
+            }, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response({'success': False, 'error': str(e)}, status=500)
 class StudentDetailView(APIView):
     """Talabaning to'liq kartasi"""
 
@@ -4140,6 +4478,103 @@ class GroupAttendanceView(APIView):
             })
 
         return Response({'success': True, 'date': str(lesson_date), 'total_students': len(data), 'results': data})
+
+
+    def post(self, request, group_id):
+        group = get_object_or_404(Group, pk=group_id)
+
+        # 1. Bugungi sana
+        today = timezone.now().date()
+
+        # 2. Sana tekshirish
+        lesson_date_str = request.data.get('lesson_date')
+        if not lesson_date_str:
+            return Response({
+                'success': False,
+                'error': "lesson_date yuborilishi shart!"
+            }, status=400)
+
+        try:
+            input_date = date.fromisoformat(lesson_date_str)
+        except ValueError:
+            return Response({
+                'success': False,
+                'error': "Sana formati xato (YYYY-MM-DD)"
+            }, status=400)
+
+        # 3. Faqat bugungi kun
+        if input_date != today:
+            return Response({
+                'success': False,
+                'error': f"Faqat bugungi kun uchun ruxsat ({today})"
+            }, status=400)
+
+        # 4. student_group ni olish
+        student_group_id = request.data.get('student_group')
+        if not student_group_id:
+            return Response({
+                'success': False,
+                'error': "student_group yuborilishi shart!"
+            }, status=400)
+
+        student_group = get_object_or_404(StudentGroup, pk=student_group_id)
+
+        # 5. Shu guruhga tegishlimi tekshirish
+        if student_group.group_id != group.id:
+            return Response({
+                'success': False,
+                'error': "Bu student_group ushbu guruhga tegishli emas!"
+            }, status=400)
+
+        # 6. Dublikat tekshiruv
+        if Attendence.objects.filter(
+            student_group=student_group,
+            lesson_date=today
+        ).exists():
+            return Response({
+                'success': False,
+                'error': "Bu talabaga bugun allaqachon davomat qo‘yilgan!"
+            }, status=400)
+
+        # 7. Serializerga data tayyorlash
+        data = request.data.copy()
+        data['lesson_date'] = today  # majburiy bugun
+
+        serializer = AttendenceSerializer(data=data)
+
+        if serializer.is_valid():
+            employee = getattr(request.user, 'employee', None)
+
+            # Talabaning branch va organization ma'lumotlarini olamiz
+            student = student_group.student
+
+            try:
+                attendance = serializer.save(
+                    marked_by=employee,
+                    # Quyidagi qatorlarni qo'shing (Agar serializer/model buni kutsa)
+                    branch_id=student.branch_id,
+                    organization_id=student.organization_id
+                )
+
+                return Response({
+                    'success': True,
+                    'message': "Davomat saqlandi va pul yechildi",
+                    'data': serializer.data
+                }, status=201)
+
+            except Exception as e:
+                import traceback
+                print(traceback.format_exc())
+
+                return Response({
+                    'success': False,
+                    'error': str(e)
+                }, status=400)
+
+        return Response({
+            'success': False,
+            'errors': serializer.errors
+        }, status=400)
 
 
 class AttendanceSaveView(APIView):
@@ -4382,3 +4817,133 @@ class GroupAddNewStudentView(APIView):
             'student':          StudentDetailSerializer(student).data,
             'student_group_id': str(sg.id),
         }, status=201)
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from academics.models.student import Student, StudentBalances, StudentTarnsactions, StudentGroup
+from academics.models.group import GroupTeacher
+from academics.models.lesson import OnlineLesson  # agar kerak bo'lsa
+
+class TalabalarMalumotView(APIView):
+
+    def get(self, request):
+
+        students = Student.objects.prefetch_related(
+            'Sgroup_student__group',           # Guruhlar
+            'Sbalances_student',               # Balans
+            'Strans_student',                  # Izoh uchun tranzaksiyalar
+            'Sgroup_student__group__group',    # Guruhdagi o'qituvchilar (GroupTeacher)
+        ).all()
+
+        result = []
+
+        for student in students:
+
+            # ==================== Balans ====================
+            balance_obj = student.Sbalances_student.first()
+            balans = float(balance_obj.balance) if balance_obj else 0
+
+            # ==================== Guruhlar ====================
+            guruhlar = []
+            for sg in student.Sgroup_student.all():
+                if sg.group:
+                    time_str = sg.joined_at.strftime("%H:%M") if sg.joined_at else ""
+                    guruhlar.append(f"{sg.group.name} ({time_str})")
+
+            guruh_text = ", ".join(guruhlar) if guruhlar else None
+
+            # ==================== O'qituvchilar ====================
+            teachers = []
+            # Studentning guruhlaridagi o'qituvchilarni topamiz
+            for sg in student.Sgroup_student.all():
+                if sg.group:
+                    for gt in sg.group.group.all():   # GroupTeacher related_name="group"
+                        if gt.teacher and gt.teacher.user:
+                            teachers.append(gt.teacher.user.full_name)
+
+            oqituvchi_text = ", ".join(set(teachers)) if teachers else None   # takrorlarni olib tashlaydi
+
+            # ==================== Oxirgi Mashg'ulot (OnlineLesson) ====================
+            # Agar OnlineLesson bilan bog'lanish bo'lsa (hozircha group orqali eng oxirgisini olamiz)
+            last_lesson = None
+            if hasattr(student, 'Sgroup_student') and student.Sgroup_student.exists():
+                group = student.Sgroup_student.first().group
+                if group:
+                    last_lesson = group.online_lessons.order_by('-lesson_date').first()
+
+            mashgulot_sana = last_lesson.lesson_date.strftime("%d.%m.%Y") if last_lesson else None
+
+            # ==================== Oxirgi Izoh ====================
+            last_trans = student.Strans_student.order_by('-transaction_date').first()
+            izoh = last_trans.comment if last_trans else ""
+
+            # ==================== Foto ====================
+            photo_url = student.photo.url if student.photo else None
+
+            item = {
+                "student_id": student.id,
+                "student_photo": photo_url,
+                "student_ism": student.full_name,
+                "student_telefon": student.phone_number,
+                "guruhlar": guruh_text,
+                "oqituvchilar": oqituvchi_text,
+                "mashgulotlar": mashgulot_sana,
+                "balans": balans,
+                "coins": student.coins,
+                "izoh": izoh,
+            }
+            result.append(item)
+        return Response(result, status=status.HTTP_200_OK)
+    def post(self, request):
+        serializer = StudentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Talaba muvaffaqiyatli qo'shildi", "data": serializer.data},
+                            status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def put(self, request, pk=None):
+        student = get_object_or_404(Student, pk=pk)
+        serializer = StudentSerializer(student, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Talaba yangilandi", "data": serializer.data},
+                            status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def patch(self, request, pk=None):
+        student = get_object_or_404(Student, pk=pk)
+        serializer = StudentSerializer(student, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "Talaba qisman yangilandi", "data": serializer.data},
+                            status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    def delete(self, request, pk=None):
+        student = get_object_or_404(Student, pk=pk)
+        student.delete()
+        return Response({"message": "Talaba muvaffaqiyatli o'chirildi"},
+                        status=status.HTTP_204_NO_CONTENT)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

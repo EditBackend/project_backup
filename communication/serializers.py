@@ -1,6 +1,5 @@
 from rest_framework import serializers
 from .models import SmsTemplates, SmsSchedules, SMSMessages
-from rest_framework import serializers
 from .models import SmsProvider
 
 
@@ -21,11 +20,7 @@ class SmsSchedulesSerializer(serializers.ModelSerializer):
     # buyerda nega yangilandi chunki avto sms
     class Meta:
         model = SmsSchedules
-        fields = [
-            'id', 'name', 'target_type', 'target_id', 'template', 'template_name',
-            'send_at', 'cron_expression', 'is_active', 'created_by', 'created_by_name',
-            'created_at', 'updated_at'
-        ]
+        fields = '__all__'
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at']
 
     def validate(self, data):
@@ -39,12 +34,7 @@ class SmsSchedulesSerializer(serializers.ModelSerializer):
         validated_data['created_by'] = self.context['request'].user.employee
         return super().create(validated_data)
 
-    def validate(self, data):
-        if not data.get("send_at") and not data.get("cron_expression"):
-            raise serializers.ValidationError(
-                "send_at yoki cron_expression dan bittasi bo‘lishi kerak"
-            )
-        return data
+
 
 
 class SMSMessagesSerializer(serializers.ModelSerializer):
@@ -62,11 +52,7 @@ class SmsProviderSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SmsProvider
-        fields = [
-            'id', 'provider', 'provider_display', 'email', 'password',
-            'nickname', 'is_active', 'balance', 'created_by', 'created_by_name',
-            'created_at', 'updated_at'
-        ]
+        fields = '__all__'
         read_only_fields = ['id', 'created_by', 'balance', 'created_at', 'updated_at']
         extra_kwargs = {'password': {'write_only': True}}
 
@@ -80,4 +66,4 @@ class SmsProviderListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SmsProvider
-        fields = ['id', 'provider', 'provider_display', 'email', 'is_active', 'balance', 'created_at']
+        fields = '__all__'
