@@ -1,46 +1,28 @@
-from django.urls import path
-from .views import (
-    UserViewSet, EmployeeViewSet, RoleViewSet,
-    RolePermissionViewSet, UserRoleViewSet
-)
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from .views import registration_view
+
+from .views import registration_view, EmployeeViewSet
+
+# 1. DRF Router yaratamiz
+router = DefaultRouter()
+
+# 2. ViewSet'larni ulash (avtomat barcha CRUD yo'llarini yaratadi)
+router.register(r'employees', EmployeeViewSet, basename='employee')
+
+# 3. Asosiy URL ro'yxati
 urlpatterns = [
-    # User URLs
-    # Ro'yxatdan o'tish (Ariza topshirish)
+    # ─── AVTORIZATSIYA (AUTH) ─────────────────────────
+    # Ro'yxatdan o'tish (Superadmin va yangi tashkilot)
     path('register/', registration_view, name='register'),
 
-    # Login qilish (Token olish)
+    # Login qilish va Token olish (Hamma uchun yagona)
     path('login/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
+
+    # Tokenni yangilash (Access token eskirganda Refresh orqali yangisini olish)
     path('login/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
 
-    path('users/', UserViewSet.as_view({'get': 'list', 'post': 'create'}), name='user-list'),
-    path('users/<int:pk>/',
-         UserViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='user-detail'),
-
-    # Employee URLs
-    path('employees/', EmployeeViewSet.as_view({'get': 'list', 'post': 'create'}), name='employee-list'),
-    path('employees/<uuid:pk>/',
-         EmployeeViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='employee-detail'),
-
-    # Role URLs
-    path('roles/', RoleViewSet.as_view({'get': 'list', 'post': 'create'}), name='role-list'),
-    path('roles/<int:pk>/',
-         RoleViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='role-detail'),
-
-    # RolePermission URLs
-    path('role-permissions/', RolePermissionViewSet.as_view({'get': 'list', 'post': 'create'}),
-         name='rolepermission-list'),
-    path('role-permissions/<int:pk>/', RolePermissionViewSet.as_view(
-        {'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='rolepermission-detail'),
-
-    # UserRole URLs
-    path('user-roles/', UserRoleViewSet.as_view({'get': 'list', 'post': 'create'}), name='userrole-list'),
-    path('user-roles/<int:pk>/',
-         UserRoleViewSet.as_view({'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'}),
-         name='userrole-detail'),
+    # ─── ASOSIY API YO'LLARI (ROUTER) ─────────────────
+    # Bunga /employees/ va /employees/<id>/ avtomatik kiradi
+    path('', include(router.urls)),
 ]

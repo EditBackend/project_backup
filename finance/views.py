@@ -7,23 +7,24 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.db.models import Sum, Q, Count
 from datetime import datetime, timedelta
 from rest_framework import status
+from django.db.models import Avg
+from django.db.models.functions import TruncDate, ExtractHour
+from django.db.models.functions import TruncMonth
 
 from audit.models import AuditLog
 from .models import (
     ExpenseCategory, Expenses, MonthlyIncome, Payment, Sale,
-    DetailedExpense, ExpenseSubcategory, Bonus, Fine, Salary,
-    WorklyIntegration, WorklyAttendance, CallLog,
+    DetailedExpense, ExpenseSubcategory, Bonus, Fine, Salary, CallLog,
 )
 from .serializers import (
     ExpenseCategorySerializer, ExpensesSerializer, MonthlyIncomeSerializer,
     PaymentSerializer, SaleSerializer, DetailedExpenseSerializer,
     ExpenseSubcategorySerializer, BulkSalaryConfigSerializer, PayPeriodSerializer,
-    CRMLeadSerializer, WorklyAttendanceSerializer, WorklyConnectionTestSerializer,
-    WorklyIntegrationSerializer, CallLogSerializer, WithdrawalListSerializer,
+    CRMLeadSerializer,  CallLogSerializer, WithdrawalListSerializer,
     BonusSerializer, FineSerializer, SalarySerializer,
     TeacherSalaryRulesSerializer, TeacherSalaryPaymentsSerializer,
     TeacherSalaryCalculationsSerializer,
-    CRMSourceSerializer, CRMPipelinesSerializer, CRMActivitySerializer,
+    CRMSourceSerializer, CRMActivitySerializer,
     ConversionFunnelSerializer, LeaveReasonSerializer,
     StudentGroupLeavesSerializer, StudentLeavesReportSerializer,
 )
@@ -32,7 +33,7 @@ from academics.models.group import Course, Group, GroupTeacher
 from academics.models.teacher import TeacherSalaryRules, TeacherSalaryPayments, TeacherSalaryCalculations
 from academics.models.student import Student, StudentGroup, StudentGroupLeaves, LeaveReason
 from crm.models import (
-    CRMSource, CRMPipelines, CRMLead, CRMActivity,
+    CRMSource, CRMLead, CRMActivity,
     CRMLeadsHistory, CRMLostReason, CRMLeadLost, CRMLeadNotes,
 )
 
@@ -1118,11 +1119,6 @@ class AllDebtsView(APIView):
 # konversiya
 
 
-
-from django.db.models.functions import TruncMonth
-import requests
-
-
 # ════════════════════════════════════════════════════════════════
 #  CONVERSION REPORT  (faqat o'qish — AuditLog shart emas)
 # ════════════════════════════════════════════════════════════════
@@ -1702,164 +1698,6 @@ class LeaveReasonViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         _log('other', instance.id, 'delete', {'name': instance.name}, None, self.request.user)
         instance.delete()
-
-
-# ════════════════════════════════════════════════════════════════
-#  WORKLY INTEGRATION
-# ════════════════════════════════════════════════════════════════
-
-@extend_schema(tags=["Workly Integration"])
-class WorklyIntegrationViewSet(viewsets.ModelViewSet):
-    queryset         = WorklyIntegration.objects.all()
-    serializer_class = WorklyIntegrationSerializer
-    permission_classes = [IsAuthenticated]
-
-    def perform_create(self, serializer):
-        obj = serializer.save()
-        _log('other', obj.id, 'create', None, {
-            'action': 'Workly integratsiya yaratildi',
-        }, self.request.user)
-
-    def perform_update(self, serializer):
-        old = {'is_active': serializer.instance.is_active, 'is_connected': serializer.instance.is_connected}
-        obj = serializer.save()
-        _log('other', obj.id, 'update', old, {
-            'is_active':    obj.is_active,
-            'is_connected': obj.is_connected,
-        }, self.request.user)
-
-    @extend_schema(request=WorklyConnectionTestSerializer,
-                   responses={200: {'type': 'object', 'properties': {'status': {'type': 'string'}}}})
-    @action(detail=False, methods=['post'])
-    def test_connection(self, request):
-        serializer = WorklyConnectionTestSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            return Response({'status': 'success', 'message': 'Test rejimida: Ulanish muvaffaqiyatli', 'connected': True})
-        except requests.RequestException as e:
-            return Response({'status': 'error', 'message': f'Tarmoq xatosi: {str(e)}', 'connected': False}, status=500)
-
-    @action(detail=True, methods=['post'])
-    def activate(self, request, pk=None):
-        integration = self.get_object()
-        try:
-            integration.is_active    = True
-            integration.is_connected = True
-            integration.save()
-
-            _log('other', integration.id, 'update', {'is_active': False}, {
-                'action': 'Workly integratsiya faollashtirildi', 'is_active': True,
-            }, request.user)
-
-            return Response({'status': 'success', 'message': 'Integratsiya faollashtirildi', 'is_active': True})
-        except Exception as e:
-            integration.is_active    = False
-            integration.is_connected = False
-            integration.save()
-            return Response({'status': 'error', 'message': f'Faollashtirish xatosi: {str(e)}', 'is_active': False}, status=400)
-
-    @action(detail=True, methods=['post'])
-    def deactivate(self, request, pk=None):
-        integration             = self.get_object()
-        integration.is_active   = False
-        integration.is_connected = False
-        integration.save()
-
-        _log('other', integration.id, 'update', {'is_active': True}, {
-            'action': "Workly integratsiya o'chirildi", 'is_active': False,
-        }, request.user)
-
-        return Response({'status': 'success', 'message': "Integratsiya o'chirildi", 'is_active': False})
-
-    @action(detail=True, methods=['post'])
-    def sync_attendance(self, request, pk=None):
-        integration = self.get_object()
-        if not integration.is_active:
-            return Response({'status': 'error', 'message': 'Integratsiya faol emas'}, status=400)
-        try:
-            integration.last_sync = timezone.now()
-            integration.save()
-
-            _log('other', integration.id, 'update', None, {
-                'action':    'Workly davomat sinxronlandi',
-                'synced_at': str(integration.last_sync),
-            }, request.user)
-
-            return Response({'status': 'success', "message": "Ma'lumotlar muvaffaqiyatli sinxronlandi",
-                             'synced_at': integration.last_sync})
-        except Exception as e:
-            integration.save()
-            return Response({'status': 'error', 'message': f'Sinxronlash xatosi: {str(e)}'}, status=500)
-
-    @action(detail=False, methods=['get'])
-    def status(self, request):
-        integration = self.queryset.first()
-        if not integration:
-            return Response({'configured': False, 'is_active': False, 'message': 'Integratsiya sozlanmagan'})
-        return Response({'configured': True, 'is_active': integration.is_active,
-                         'is_connected': integration.is_connected, 'last_sync': integration.last_sync,
-                         'error_message': getattr(integration, 'error_message', None)})
-
-from django.db.models import Avg
-from django.db.models.functions import TruncDate, ExtractHour
-
-
-# ════════════════════════════════════════════════════════════════
-#  WORKLY ATTENDANCE  (faqat o'qish)
-# ════════════════════════════════════════════════════════════════
-
-@extend_schema(tags=["Workly Attendance"])
-class WorklyAttendanceViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset         = WorklyAttendance.objects.select_related('employee').all()
-    serializer_class = WorklyAttendanceSerializer
-
-    def get_queryset(self):
-        queryset   = super().get_queryset()
-        employee   = self.request.query_params.get('employee')
-        date       = self.request.query_params.get('date')
-        start_date = self.request.query_params.get('start_date')
-        end_date   = self.request.query_params.get('end_date')
-        is_late    = self.request.query_params.get('is_late')
-
-        if employee:
-            queryset = queryset.filter(employee_id=employee)
-        if date:
-            queryset = queryset.filter(date=date)
-        if start_date:
-            queryset = queryset.filter(date__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(date__lte=end_date)
-        if is_late:
-            queryset = queryset.filter(is_late=is_late == 'true')
-
-        return queryset.order_by('-date', '-check_in')
-
-    @action(detail=False, methods=['get'])
-    def summary(self, request):
-        start_date = request.query_params.get('start_date')
-        end_date   = request.query_params.get('end_date')
-        queryset   = self.queryset
-
-        if start_date:
-            queryset = queryset.filter(date__gte=start_date)
-        if end_date:
-            queryset = queryset.filter(date__lte=end_date)
-
-        total         = queryset.count()
-        late_count    = queryset.filter(is_late=True).count()
-        late_minutes  = queryset.filter(is_late=True).aggregate(total=Sum('late_minutes'))['total'] or 0
-        by_employee   = queryset.values('employee__full_name').annotate(
-            total=Count('id'), late=Count('id', filter=Q(is_late=True)),
-            total_late_minutes=Sum('late_minutes'),
-        ).order_by('-late')
-
-        return Response({
-            'total_records':      total,
-            'on_time':            total - late_count,
-            'late':               late_count,
-            'total_late_minutes': late_minutes,
-            'by_employee':        list(by_employee),
-        })
 
 
 # ════════════════════════════════════════════════════════════════

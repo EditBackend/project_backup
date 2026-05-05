@@ -1,6 +1,6 @@
 from django.db import models
 from core.models import BaseModel, student_avatar_upload_path, exam_files_upload_path
-from core.validators import uz_phone_validator
+from core.validators import validate_uz_phone
 from accounts.models import Employee
 from organizations.models import Branch,Organizations
 
@@ -19,8 +19,8 @@ class Student(BaseModel):
 
     full_name = models.CharField(max_length=250)
     photo = models.ImageField(upload_to=student_avatar_upload_path, null=True, blank=True)
-    phone_number = models.CharField(max_length=20, validators=[uz_phone_validator], unique=True)
-    phone_number2 = models.CharField(max_length=20, validators=[uz_phone_validator, ], unique=True, blank=True, null=True)
+    phone_number = models.CharField(max_length=20, validators=[validate_uz_phone], unique=True)
+    phone_number2 = models.CharField(max_length=20, validators=[validate_uz_phone, ], unique=True, blank=True, null=True)
     password = models.CharField(max_length=10, blank=True, null=True)
     parent_name = models.CharField(max_length=20, blank=True, null=True)
     parent_phone = models.CharField(max_length=20, blank=True, null=True)

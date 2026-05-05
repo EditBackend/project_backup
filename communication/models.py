@@ -1,6 +1,3 @@
-from core.models import BaseModel
-from accounts.models import Employee
-from core.validators import uz_phone_validator
 from django.db import models
 from core.models import BaseModel
 from accounts.models import Employee

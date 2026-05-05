@@ -1,234 +1,133 @@
 from rest_framework import serializers
+from django.utils import timezone
+from core.validators import validate_uz_phone
 from .models import (
-    CRMSource, CRMPipelines, CRMLead,
-    CRMActivity, CRMLeadsHistory,
-    CRMLostReason, CRMLeadLost, CRMLeadNotes,CrmSection
+    CRMPipeline, CrmSection, CRMSource, CRMLostReason,
+    CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes
 )
-from .models import LeadForm, FormField
+from organizations.models import Branch
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
 
 
+# ─── YARDAMCHI SERIALIZERLAR (Read-Only yoki oddiy lug'atlar uchun) ───
 
-
-class FormFieldSerializer(serializers.ModelSerializer):
+class CRMPipelineSerializer(serializers.ModelSerializer):
     class Meta:
-        model = FormField
-        fields = ['id', 'label', 'field_type', 'is_required', 'order', 'options']
-        # lead_form ni yaratish vaqtida majburiy qilmaymiz
-        extra_kwargs = {
-            'lead_form': {'required': False, 'read_only': True},
-            'id': {'read_only': True },
-            'order': {'read_only': False}
-        }
-
-
-class LeadFormSerializer(serializers.ModelSerializer):
-    fields = FormFieldSerializer(many=True, read_only=True)   # javobda ko'rsatish uchun
-
-    class Meta:
-        model = LeadForm
-        fields = [
-            'id', 'name', 'type', 'branch', 'pipeline', 'source',
-            'fields', 'created_at', 'updated_at', 'created_by'
-        ]
-        read_only_fields = ['created_at', 'updated_at', 'created_by']
-
-
-# serializers.py
-
-class LeadFormCreateSerializer(serializers.ModelSerializer):
-    fields = FormFieldSerializer(many=True, write_only=True)
-
-    class Meta:
-        model = LeadForm
-        fields = ['name', 'type', 'branch', 'pipeline', 'source', 'fields']
-
-    def create(self, validated_data):
-        fields_data = validated_data.pop('fields', [])
-        lead_form = LeadForm.objects.create(**validated_data)
-
-        for order, field_data in enumerate(fields_data):
-            field_data.pop('lead_form', None)
-            field_data.pop('order', None)        # ← Ikki marta kelmasligi uchun
-
-            FormField.objects.create(
-                lead_form=lead_form,
-                order=order,                     # ← Har doim loopdan olish
-                **field_data
-            )
-        return lead_form
-
-    def update(self, instance, validated_data):
-        fields_data = validated_data.pop('fields', None)
-
-        # Asosiy maydonlarni yangilash
-        instance.name = validated_data.get('name', instance.name)
-        instance.type = validated_data.get('type', instance.type)
-        instance.branch = validated_data.get('branch', instance.branch)
-        instance.pipeline = validated_data.get('pipeline', instance.pipeline)
-        instance.source = validated_data.get('source', instance.source)
-        instance.save()
-
-        if fields_data is not None:
-            # Hozirgi fieldlarni saqlab qolamiz (id bo'yicha)
-            existing_fields = {f.id: f for f in instance.fields.all()}
-
-            for order, field_data in enumerate(fields_data):
-                field_id = field_data.get('id')
-                field_data.pop('lead_form', None)
-                field_data.pop('order', None)        # ← Ikki marta kelmasligi uchun
-
-                if field_id and field_id in existing_fields:
-                    # UPDATE
-                    field = existing_fields[field_id]
-                    field.label = field_data.get('label', field.label)
-                    field.field_type = field_data.get('field_type', field.field_type)
-                    field.is_required = field_data.get('is_required', field.is_required)
-                    field.options = field_data.get('options', field.options)
-                    field.order = order
-                    field.save()
-                else:
-                    # CREATE
-                    FormField.objects.create(
-                        lead_form=instance,
-                        order=order,
-                        **field_data
-                    )
-
-            # Frontdan yuborilmagan eski fieldlarni o‘chirish
-            sent_ids = {item.get('id') for item in fields_data if item.get('id') is not None}
-            for field_id, field in list(existing_fields.items()):
-                if field_id not in sent_ids:
-                    field.delete()
-
-        return instance
-
-
-
-class CrmSectionSerializer(serializers.ModelSerializer):
-    teacher_name = serializers.CharField(source='teacher.name', read_only=True)
-    course_name = serializers.CharField(source='course.name', read_only=True)
-
-    class Meta:
-        model = CrmSection
-        fields = '__all__'
-
+        model = CRMPipeline
+        fields = ['id', 'name', 'position']
 
 
 class CRMSourceSerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMSource
-        fields = "__all__"
+        fields = ['id', 'name']
 
 
+# ─── ASOSIY CRM LEAD SERIALIZER (Yaratish va Tahrirlash) ───
 
+class CRMLeadSerializer(serializers.ModelSerializer):
+    """ Liddlarni yaratish, tahrirlash va ko'rish uchun umumiy serializer """
 
+    full_name = serializers.CharField(
+        required=True,
+        error_messages={'blank': "Lidning to'liq ismini kiritish majburiy."}
+    )
+    phone_number = serializers.CharField(required=True)
 
-class CRMPipelinesSerializer(serializers.ModelSerializer):
     class Meta:
-        model = CRMPipelines
-        fields = "__all__"
+        model = CRMLead
+        fields = [
+            'id', 'full_name', 'phone_number', 'gender', 'status', 'temperature',
+            'source', 'pipeline', 'section', 'assigned_to', 'expected_course',
+            'next_followup_date', 'branch', 'created_at'
+        ]
+        # Xavfsizlik uchun bu maydonlarni foydalanuvchi API orqali yubora olmaydi
+        read_only_fields = ['id', 'created_at', 'organization', 'created_by']
+
+    def validate_phone_number(self, value):
+        # 1. Formatni tekshiramiz
+        value = validate_uz_phone(value)
+
+        # 2. Shu tashkilot (maktab) ichida bu raqam oldin kiritilganmi?
+        request = self.context.get('request')
+        if request and request.method == 'POST':
+            if CRMLead.objects.filter(
+                    phone_number=value,
+                    organization=request.user.organization
+            ).exists():
+                raise serializers.ValidationError(
+                    "Ushbu telefon raqamli lid sizning bazangizda allaqachon mavjud."
+                )
+        return value
+
+    def validate_next_followup_date(self, value):
+        if value and value < timezone.now():
+            raise serializers.ValidationError(
+                "Keyingi aloqa sanasi (next_followup_date) o'tgan vaqt bo'lishi mumkin emas. Kelajakdagi vaqtni kiriting."
+            )
+        return value
+
+    def validate(self, attrs):
+        """ Global xavfsizlik va biznes mantiq tekshiruvlari """
+        request = self.context.get('request')
+        org = request.user.organization if request else None
+
+        if not org:
+            raise serializers.ValidationError("Tashkilotga biriktirilmagan foydalanuvchi lid qo'sha olmaydi.")
+
+        # XAVFSIZLIK: Boshqa maktabning filialini, pipelinini yoki xodimini tanlab qo'ymasligini tekshiramiz
+        branch = attrs.get('branch')
+        if branch and branch.organization != org:
+            raise serializers.ValidationError({"branch": "Tanlangan filial sizning tashkilotingizga tegishli emas."})
+
+        pipeline = attrs.get('pipeline')
+        if pipeline and pipeline.organization != org:
+            raise serializers.ValidationError({"pipeline": "Tanlangan pipeline (bosqich) topilmadi."})
+
+        source = attrs.get('source')
+        if source and source.organization != org:
+            raise serializers.ValidationError({"source": "Tanlangan manba topilmadi."})
+
+        assigned_to = attrs.get('assigned_to')
+        if assigned_to and assigned_to.organization != org:
+            raise serializers.ValidationError(
+                {"assigned_to": "Lidni tayinlamoqchi bo'lgan xodim sizning markazingizda ishlamaydi."})
+
+        return attrs
 
 
-
-
-
-
-# class CRMLeadSerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = CRMLead
-#         fields = "__all__"
-
-#     def validate_full_name(self, value):
-#         if len(value) < 3:
-#             raise serializers.ValidationError("Ism juda qisqa")
-#         return value
-
-
-
-
+# ─── CRM HARAKATLAR (Qo'ng'iroq, Rad etish) ───
 
 class CRMActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMActivity
-        fields = "__all__"
+        fields = ['id', 'lead', 'activity_type', 'result', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
-
-
-
-
-
-
-class CRMLeadsHistorySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CRMLeadsHistory
-        fields = "__all__"
-
-
-
-
-
-
-class CRMLostReasonSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CRMLostReason
-        fields = "__all__"
-
-
+    def validate_lead(self, value):
+        request = self.context.get('request')
+        if value.organization != request.user.organization:
+            raise serializers.ValidationError("Boshqa tashkilot lidiga harakat (activity) qo'sha olmaysiz.")
+        return value
 
 
 class CRMLeadLostSerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMLeadLost
-        fields = "__all__"
+        fields = ['lead', 'reason', 'comment']
 
+    def validate(self, attrs):
+        request = self.context.get('request')
+        lead = attrs.get('lead')
 
+        # 1. Tashkilot daxlsizligi
+        if lead.organization != request.user.organization:
+            raise serializers.ValidationError({"lead": "Sizga tegishli bo'lmagan lidni rad eta olmaysiz."})
 
+        # 2. Lid allaqachon rad etilgan bo'lsa
+        if CRMLeadLost.objects.filter(lead=lead).exists():
+            raise serializers.ValidationError({"lead": "Bu lid allaqachon 'Rad etilgan' (Lost) holatiga o'tkazilgan."})
 
-
-class CRMLeadNotesSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CRMLeadNotes
-        fields = "__all__"
-
-
-
-
-class CRMLeadSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = CRMLead
-        fields = "__all__"
-
-        extra_kwargs = {
-            'assigned_to': {'read_only': True}
-        }
-
-    def validate_full_name(self, value):
-        if len(value) < 3:
-            raise serializers.ValidationError("Ism juda qisqa")
-        return value
-
-    def to_representation(self, instance):
-        representation = super().to_representation(instance)
-
-        # Biz endi 100% ishonch bilan aytishimiz mumkinki,
-        # assigned_to doim bor bo'ladi. Shuning uchun if shart emas.
-
-        # Lekin ma'lumotlar bazasida buzilgan ma'lumot bo'lsa dastur qulamasligi uchun
-        # getattr dan foydalanish baribir eng zo'r "best practice" hisoblanadi:
-
-        assigned_user = getattr(instance, 'assigned_to', None)
-        if assigned_user:
-            representation['assigned_to'] = f"{assigned_user.full_name}".strip()
-
-        return representation
-
-
-
-
-
-
-
-
-
-
-
+        return attrs

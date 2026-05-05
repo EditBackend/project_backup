@@ -1,31 +1,30 @@
 from django.db import models
 import uuid
-from django.utils.text import slugify
-from core.validators import uz_phone_validator
+from core.validators import validate_uz_phone
 from core.models import BaseModel
 
-# BU joyda yangilanishlar bo'lmoqda xushyor bolib kuzatish kerka.
-
-class SuperAdmin(models.Model):
-    username = models.CharField(max_length=255, unique=True)
-    first_name = models.CharField(max_length=255, blank=True, null=True)
-    last_name = models.CharField(max_length=255, blank=True, null=True)
-    phone = models.CharField(max_length=20, unique=True)
-    address = models.TextField(blank=True)
-    password = models.CharField(max_length=255, null=True, blank=True)
-    is_active = models.BooleanField(default=False)
-
-    date_joined = models.DateTimeField(auto_now_add=True)
-
-
+#3.213.000 ->
+# ════════════════════════════════════════════════════════════════
+#  YANGI: TARIFLAR JADVALI (Dinamik boshqarish uchun)
+# ════════════════════════════════════════════════════════════════
+class TariffPlan(models.Model):
+    name = models.CharField(max_length=100, verbose_name="Tarif nomi (Start, Basic...)")
+    max_students = models.PositiveIntegerField(
+        null=True, blank=True,
+        verbose_name="Maksimal o'quvchilar soni",
+        help_text="Cheksiz bo'lsa bo'sh qoldiring"
+    )
+    price_per_month = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Oylik to'lov narxi")
+    is_active = models.BooleanField(default=True)
 
     def __str__(self):
-        return self.username
+        limit = self.max_students if self.max_students else "Cheksiz"
+        return f"{self.name} ({limit} o'quvchi) - {self.price_per_month} so'm"
 
 
-
-
-
+# ════════════════════════════════════════════════════════════════
+#  TASHKILOT
+# ════════════════════════════════════════════════════════════════
 class Organizations(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
@@ -35,35 +34,20 @@ class Organizations(models.Model):
         ("expires", "To'lov muddati yaqin"),
         ("expired", "To'lov muddati tugagan"),
     )
-    superadmin = models.ForeignKey('SuperAdmin',on_delete=models.SET_NULL,null=True,blank=True)
+
     name = models.CharField(max_length=250, verbose_name="Tashkilot nomi")
     logo = models.FileField(upload_to="org/logos/", null=True, blank=True)
     address = models.TextField(blank=True)
-    phone = models.CharField(max_length=20, validators=[uz_phone_validator], unique=True)
+    phone = models.CharField(max_length=20, validators=[validate_uz_phone], unique=True)
     status = models.CharField(max_length=20, choices=STATUS, default="active")
+
+    # Ortiqcha org_username, org_password va superadmin maydonlari olib tashlandi
+    work_start_time = models.TimeField(null=True, blank=True, verbose_name="Ish boshlanishi")
+    work_end_time = models.TimeField(null=True, blank=True, verbose_name="Ish tugashi")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
 
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-    work_start_time = models.TimeField(null=True, blank=True, verbose_name="Ish boshlanishi")
-    work_end_time = models.TimeField(null=True, blank=True, verbose_name="Ish tugashi")
-    org_username = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    org_password = models.CharField(max_length=255, null=True, blank=True)
-    expired_at = models.DateTimeField(null=True, blank=True)
     def __str__(self):
         return self.name
 
@@ -71,232 +55,69 @@ class Organizations(models.Model):
         verbose_name = "Tashkilot"
         verbose_name_plural = "Tashkilotlar"
 
+    # Limitni tekshirish uchun maxsus metod
+    def has_student_capacity(self, current_student_count):
+        """
+        Tashkilotning joriy obunasiga qarab, yangi o'quvchi qo'shish imkoni bormi?
+        """
+        active_sub = self.subscriptions.filter(status='active').first()
+        if not active_sub or not active_sub.tariff_plan:
+            return False
+
+        max_limit = active_sub.tariff_plan.max_students
+        if max_limit is None:  # Cheksiz tarif
+            return True
+
+        return current_student_count < max_limit
+
+
+# ════════════════════════════════════════════════════════════════
+#  OBUNA TIZIMI (Tarif bilan bog'langan)
+# ════════════════════════════════════════════════════════════════
+class Subscriptions(models.Model):
+    organization = models.ForeignKey(
+        Organizations, on_delete=models.CASCADE, related_name="subscriptions"
+    )
+    tariff_plan = models.ForeignKey(
+        TariffPlan, on_delete=models.RESTRICT, related_name="subscriptions",
+        verbose_name="Tanlangan tarif"
+    )
+    start_date = models.DateField(verbose_name="Obuna boshlanish sanasi")
+    end_date = models.DateField(verbose_name="Obuna tugash sanasi")
+
+    SUB_STATUS = (
+        ("active", "Faol"),
+        ("expired", "Tugagan"),
+        ("cancelled", "Bekor qilingan"),
+    )
+    status = models.CharField(max_length=20, choices=SUB_STATUS, default="active")
+
+    # Tarif narxi o'zgarsa ham, eski obunalar narxi saqlanib qolishi uchun alohida yozib olinadi
+    paid_amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="To'langan summa")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.organization.name} | {self.tariff_plan.name} | {self.status}"
+
+
+# ════════════════════════════════════════════════════════════════
+#  FILIALLAR (Cheklovlarsiz)
+# ════════════════════════════════════════════════════════════════
 class Branch(models.Model):
     organization = models.ForeignKey(
-        Organizations,
-        on_delete=models.CASCADE,
-        related_name="branches",
-        null=True,
-        blank=True
+        Organizations, on_delete=models.CASCADE, related_name="branches"
     )
     name = models.CharField(max_length=250, verbose_name="Filial nomi")
     address = models.TextField(blank=True)
-    phone = models.CharField(max_length=20, validators=[uz_phone_validator], unique=True)
+    # unique=True olib tashlandi, turli tashkilotlar bir xil raqam ishlata olishi uchun
+    phone = models.CharField(max_length=20, validators=[validate_uz_phone], blank=True, null=True)
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-    def __str__(self):
-        return f"{self.organization.name if self.organization else 'No Org'} - {self.name}"
-
-
-class Subscriptions(models.Model):
-    organization = models.ForeignKey(
-        Organizations,
-        on_delete=models.CASCADE,
-        related_name="subscriptions",
-        null=True,      # <--- qo'shildi
-        blank=True      # <--- qo'shildi
-    )
-    plan_type = models.CharField(max_length=20)
-    start_date = models.DateTimeField()
-    end_date = models.DateTimeField()
-    status = models.CharField(max_length=20)
-    price = models.IntegerField()
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
 
     def __str__(self):
-        return f"{self.organization.name if self.organization else 'No Org'} - {self.plan_type}"
+        return f"{self.organization.name} - {self.name}"
 
-
-class OrganizationSettings(models.Model):
-    organization = models.OneToOneField(
-        Organizations,
-        on_delete=models.CASCADE,
-        related_name="settings",
-        primary_key=True
-    )
-
-    PAYMENT_MODE_CHOICES = (
-        ("monthly", "Oylik"),
-        ("per_lesson", "Darslik"),
-        ("package", "Paket"),
-    )
-
-    payment_mode = models.CharField(max_length=20, choices=PAYMENT_MODE_CHOICES, default="monthly")
-
-    exclude_trial_students = models.BooleanField(default=True)
-    exclude_archived_students = models.BooleanField(default=True)
-    include_student_discount = models.BooleanField(default=False)
-    apply_discount_to_salary = models.BooleanField(default=False)
-    calculate_archived_salary = models.BooleanField(default=False)
-    link_salary_to_attendance = models.BooleanField(default=True)
-
-    only_main_teacher_attendance = models.BooleanField(default=False)
-    only_attended_lessons = models.BooleanField(default=True)
-    calculate_trial_salary = models.BooleanField(default=False)
-    include_frozen_students = models.BooleanField(default=False)
-
-    allow_teacher_sms = models.BooleanField(default=False)
-    hide_student_data_from_teacher = models.BooleanField(default=False)
-    attendance_only_during_lesson = models.BooleanField(default=False)
-    allow_schedule_overlap = models.BooleanField(default=False)
-    show_group_balance = models.BooleanField(default=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-
-    def __str__(self):
-        return f"Settings for {self.organization.name}"
-
-
-class ExamSettings(models.Model):
-    organization = models.OneToOneField(
-        Organizations,
-        on_delete=models.CASCADE,
-        related_name="exam_settings",
-        primary_key=True
-    )
-
-    include_active_students = models.BooleanField(default=True)
-    include_trial_students = models.BooleanField(default=False)
-    include_archived_students = models.BooleanField(default=False)
-    include_frozen_students = models.BooleanField(default=False)
-    include_deleted_students = models.BooleanField(default=False)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-
-    def __str__(self):
-        return f"Exam Settings for {self.organization.name}"
-
-
-# Qolgan modellaringiz (Section, LandingPage, LandingPageSubmission, Tag)
-class Section(models.Model):
-    name = models.CharField(max_length=150, unique=True)
-    description = models.TextField(blank=True, null=True)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-
-    class Meta:
-        db_table = "sections"
-        verbose_name = "Section"
-        verbose_name_plural = "Sections"
-        ordering = ['name']
-
-    def __str__(self):
-        return self.name
-
-
-class LandingPage(models.Model):
-    organization = models.ForeignKey(Organizations, on_delete=models.CASCADE, related_name="landing_pages")
-    name = models.CharField(max_length=250)
-    slug = models.SlugField(max_length=250, unique=True)
-    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="landing_branch")
-    section = models.ForeignKey('Section', on_delete=models.SET_NULL, null=True, blank=True, related_name="landing_section")
-    source = models.CharField(max_length=20, choices=[("telegram", "Telegram"), ("instagram", "Instagram"), ("facebook", "Facebook"), ("website", "Website"), ("offline", "Offline"), ("other", "Boshqa")])
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_created_by"
-    )
-
-    updated_by = models.ForeignKey(
-        "accounts.Employee",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="%(class)s_updated_by"
-    )
-
-    def __str__(self):
-        return self.name
-
-    def save(self, *args, **kwargs):
-        if not self.slug:
-            self.slug = slugify(self.name)
-        super().save(*args, **kwargs)
-
-
+# OrganizationSettings va ExamSettings modellarida mantiqiy xato yo'q,
+# ularni o'zingiz yozgan holatda ishlataverishingiz mumkin.

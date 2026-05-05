@@ -1,16 +1,18 @@
 from datetime import timezone
-
-from rest_framework import serializers
-from .models import ExpenseCategory, Expenses,MonthlyIncome, Payment,Sale,DetailedExpense,ExpenseSubcategory,CallLog
+from .models import ExpenseCategory, MonthlyIncome,CallLog
 from django.db.models import Sum
-from accounts.models import Employee
-from academics.models.group import Course
-from .models import Bonus, Fine, Salary,WorklyAttendance,WorklyIntegration
+from .models import Bonus, Fine, Salary
 from academics.models.teacher import TeacherSalaryRules, TeacherSalaryPayments, TeacherSalaryCalculations
-from crm.models import (CRMSource, CRMPipelines, CRMLead, CRMActivity,
-                        CRMLeadsHistory, CRMLostReason, CRMLeadLost, CRMLeadNotes)
-from academics.models.student import (Student, StudentGroup, StudentGroupLeaves,
+from crm.models import (CRMSource, CRMLead, CRMActivity)
+from academics.models.student import (StudentGroupLeaves,
                                       LeaveReason)
+from .models import ExpenseSubcategory
+# finance/serializers.py
+from rest_framework import serializers
+from .models import Payment, Sale, DetailedExpense, Expenses  # o'zingizning modellaringizni qo'ying
+
+ # guruh modeli
+
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
@@ -102,10 +104,6 @@ class DetailedExpenseSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Summa 1,000,000 so'mdan oshmasligi kerak")
         return value
 
-
-# ish haqi
-
-
 class BonusSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source='employee.full_name', read_only=True)
     course_name = serializers.CharField(source='course.name', read_only=True)
@@ -131,10 +129,6 @@ class SalarySerializer(serializers.ModelSerializer):
         model = Salary
         fields = '__all__'
         read_only_fields = ('total_amount',)
-
-
-
-
 
 class TeacherSalaryRulesSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.full_name', read_only=True)
@@ -221,8 +215,6 @@ class AllDebtsSerializer(serializers.Serializer):
 
 # konversiya
 
-
-
 class CRMSourceSerializer(serializers.ModelSerializer):
     leads_count = serializers.SerializerMethodField()
 
@@ -234,16 +226,16 @@ class CRMSourceSerializer(serializers.ModelSerializer):
         return obj.source.count()
 
 
-class CRMPipelinesSerializer(serializers.ModelSerializer):
-    leads_count = serializers.SerializerMethodField()
-
-    class Meta:
-        model = CRMPipelines
-        fields = '__all__'
-
-    def get_leads_count(self, obj):
-        return obj.pipline.count()
-
+# class CRMPipelinesSerializer(serializers.ModelSerializer):
+#     leads_count = serializers.SerializerMethodField()
+#
+#     class Meta:
+#         model = CRMPipelines
+#         fields = '__all__'
+#
+#     def get_leads_count(self, obj):
+#         return obj.pipline.count()
+#
 
 class CRMLeadSerializer(serializers.ModelSerializer):
     source_name = serializers.CharField(source='source.name', read_only=True)
@@ -324,40 +316,6 @@ class StudentLeavesReportSerializer(serializers.Serializer):
             raise serializers.ValidationError("Boshlanish sanasi tugash sanasidan katta bo'lmasligi kerak")
         return data
 
-# Workly hisoboti uchun API yaratish
-class WorklyIntegrationSerializer(serializers.ModelSerializer):
-    # Read uchun shifrlangan ma'lumotlarni ko'rsatmaymiz
-    client_id_masked = serializers.SerializerMethodField()
-    client_secret_masked = serializers.SerializerMethodField()
-    username_masked = serializers.SerializerMethodField()
-    password_masked = serializers.SerializerMethodField()
-
-    class Meta:
-        model = WorklyIntegration
-        fields = '__all__'
-        extra_kwargs = {
-            'client_secret': {'write_only': True},
-            'password': {'write_only': True}
-        }
-
-    def get_client_id_masked(self, obj):
-        if obj.client_id:
-            decrypted = obj.decrypt_field(obj.client_id)
-            return f"{decrypted[:4]}{'*' * (len(decrypted) - 4)}"
-        return None
-
-    def get_client_secret_masked(self, obj):
-        return "***********" if obj.client_secret else None
-
-    def get_username_masked(self, obj):
-        if obj.username:
-            decrypted = obj.decrypt_field(obj.username)
-            return f"{decrypted[:2]}***"
-        return None
-
-    def get_password_masked(self, obj):
-        return "***********" if obj.password else None
-
 
 class WorklyConnectionTestSerializer(serializers.Serializer):
     """Ulanishni tekshirish uchun"""
@@ -365,14 +323,6 @@ class WorklyConnectionTestSerializer(serializers.Serializer):
     client_secret = serializers.CharField()
     username = serializers.CharField()
     password = serializers.CharField()
-
-
-class WorklyAttendanceSerializer(serializers.ModelSerializer):
-    employee_name = serializers.CharField(source='employee.full_name', read_only=True)
-
-    class Meta:
-        model = WorklyAttendance
-        fields = '__all__'
 
 
 class CallLogSerializer(serializers.ModelSerializer):
@@ -411,9 +361,6 @@ class CallLogFilterSerializer(serializers.Serializer):
     )
 
 
-# finance/serializers.py
-from rest_framework import serializers
-from .models import Payment, Sale, DetailedExpense, Expenses  # o'zingizning modellaringizni qo'ying
 
 class PaymentListSerializer(serializers.ModelSerializer):
     """Jadvalda ko'rsatiladigan to'lovlar uchun"""
@@ -469,17 +416,6 @@ class AllPaymentsResponseSerializer(serializers.Serializer):
     chart = serializers.DictField(child=serializers.ListField())
     results = PaymentListSerializer(many=True)
 
-
-
-
-
-# yechib olish
-# finance/serializers.py (yechib olish uchun alohida serializerlar)
-
-from rest_framework import serializers
-from .models import DetailedExpense, ExpenseSubcategory, Payment  # modellaringiz
-
-
 class WithdrawalListSerializer(serializers.ModelSerializer):
     """Jadvalda ko'rsatiladigan yechib olishlar uchun"""
     date = serializers.DateField(source='date', format='%d.%m.%Y')
@@ -512,16 +448,6 @@ class AllWithdrawalsResponseSerializer(serializers.Serializer):
     period = serializers.DictField(child=serializers.CharField(allow_null=True))
     chart = serializers.DictField(child=serializers.ListField())
     results = WithdrawalListSerializer(many=True)
-
-
-
-
-
-
-
-
-# xarajatlar
-# finance/serializers.py (faqat xarajatlar uchun qo'shimchalar)
 
 
 
@@ -567,10 +493,6 @@ class ExpenseCreateUpdateSerializer(serializers.ModelSerializer):
         return value
 
 
-# finance/serializers.py
-
-from rest_framework import serializers
- # guruh modeli
 
 
 class TeacherSalaryRuleSerializer(serializers.ModelSerializer):

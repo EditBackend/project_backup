@@ -1,19 +1,16 @@
 from django.db import models
-from django.contrib.auth.models import AbstractUser, Permission, PermissionsMixin, BaseUserManager
+from django.contrib.auth.models import AbstractUser, BaseUserManager, Group
 from core.models import BaseModel, employee_avatar_upload_path, Gender
-
 from organizations.models import Organizations, Branch
-from datetime import date
 
 
 class UserManager(BaseUserManager):
+    # Odatda SaaS tizimlarda username emas, phone yoki email orqali login qilinadi.
+    # Agar phone orqali login qilmoqchi bo'lsangiz, buni to'g'rilashingiz kerak bo'ladi.
     def create_user(self, username, email=None, password=None, **extra_fields):
         if not username:
             raise ValueError('Username majburiy')
-
-        if email:
-            email = self.normalize_email(email)
-
+        email = self.normalize_email(email)
         user = self.model(username=username, email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -22,55 +19,51 @@ class UserManager(BaseUserManager):
     def create_superuser(self, username, email=None, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-
-        if extra_fields.get('is_staff') is not True:
-            raise ValueError('Superuser is_staff=True bo\'lishi kerak.')
-        if extra_fields.get('is_superuser') is not True:
-            raise ValueError('Superuser is_superuser=True bo\'lishi kerak.')
-
         return self.create_user(username, email, password, **extra_fields)
 
 
-class User(AbstractUser, PermissionsMixin):
+class User(AbstractUser):
+    # is_active va email AbstractUser ning o'zida bor, ularni qayta yozmaymiz!
     phone = models.CharField(max_length=20, unique=True)
     full_name = models.CharField(max_length=150)
-    is_active = models.BooleanField(default=True)
     birth_date = models.DateField(null=True, blank=True)
-    gender = models.CharField(max_length=1,
-                              choices=Gender.choices,
-                              null=True,
-                              blank=True)
+    gender = models.CharField(max_length=1, choices=Gender.choices, null=True, blank=True)
 
-    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL,
-                                  null=True, blank=True, related_name="branch")
-    organization = models.ForeignKey(Organizations, on_delete=models.CASCADE,
-                                        null=True, blank=True, related_name="organization")
+    # RELATED_NAME lar to'g'rilandi
+    organization = models.ForeignKey(Organizations, on_delete=models.CASCADE, null=True, blank=True,
+                                     related_name="users")
+    branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="users")
+
+    # Agar rollarni oson ajratib olmoqchi bo'lsangiz (Groupdan tashqari qulaylik uchun)
+    # qo'shimcha maydon qo'shish mumkin:
+    ROLE_CHOICES = (
+        ('SUPERADMIN', 'Superadmin'),
+        ('EMPLOYEE', 'Xodim'),
+        ('STUDENT', 'Oquvchi'),
+    )
+    role = models.CharField(max_length=20, choices=ROLE_CHOICES, default='EMPLOYEE')
 
     objects = UserManager()
-    USERNAME_FIELD = "username"
+
+    # Agar telefon raqam orqali login qilmoqchi bo'lsangiz buni 'phone' ga o'zgartiring
+    USERNAME_FIELD = "phone"
+
+    @property
+    def is_superadmin(self):
+        return self.role == 'SUPERADMIN'
 
 
 class Employee(BaseModel):
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee")
-    email = models.EmailField(blank=True, null=True)
-    photo = models.ImageField(upload_to=employee_avatar_upload_path,
-                              null=True,
-                              blank=True)
-    position = models.CharField(max_length=100,
-                              null=True,
-                              blank=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    is_active = models.BooleanField(default=True)
+    # Faqat ishga (HR) oid ma'lumotlar shu yerda turadi
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee_profile")
+    photo = models.ImageField(upload_to=employee_avatar_upload_path, null=True, blank=True)
+    position = models.CharField(max_length=100, null=True, blank=True)
     is_approved = models.BooleanField(default=False)
 
-class Role(BaseModel):
-    name = models.CharField(max_length=100)
+    # email va is_active olib tashlandi, chunki ular User da bor. Ular doim sinxron ishlashi kerak.
 
-class RolePermission(models.Model):
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="permission_role")
-    permission = models.ForeignKey(Permission, on_delete=models.CASCADE, related_name="permission")
+    def __str__(self):
+        return f"{self.user.full_name} - {self.position}"
 
-class UserRole(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='user_roles')
-    role = models.ForeignKey(Role, on_delete=models.CASCADE, related_name="UserRole_role")
+# Custom Role, RolePermission, UserRole modellarini to'liq O'CHIRIB TASHLANG.
+# O'rniga Django'ning tayyor 'Group' modelini ishlating.

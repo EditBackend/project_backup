@@ -1,8 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
-    Organizations, Branch, Subscriptions, OrganizationSettings, 
-    ExamSettings, Section, LandingPage, SuperAdmin
+    Organizations, Branch, Subscriptions
 )
 from accounts.models import Employee
 
@@ -17,16 +16,6 @@ class SubscriptionInline(admin.TabularInline):
     model = Subscriptions
     extra = 0
     readonly_fields = ['created_at']
-
-class OrganizationSettingsInline(admin.StackedInline):
-    model = OrganizationSettings
-    can_delete = False
-    verbose_name_plural = "Tashkilot Sozlamalari"
-
-class ExamSettingsInline(admin.StackedInline):
-    model = ExamSettings
-    can_delete = False
-    verbose_name_plural = "Imtihon Sozlamalari"
 
 # ==================== ADMIN CLASSES ====================
 

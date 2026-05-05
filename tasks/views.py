@@ -1,49 +1,61 @@
-from django.shortcuts import render
-from drf_spectacular.utils import extend_schema
 from rest_framework import viewsets
-from .models import (
-TaskBoards, TaskColumns, Task, TaskComments,
-    TaskActivityLogs, TaskNotifications, TaskPermissions,
-)
-
+from rest_framework.permissions import IsAuthenticated
+from .models import TaskBoard, TaskColumn, Task, TaskComment, BoardPermission
 from .serializers import (
-TaskBoardsSerializer,
-    TaskColumnsSerializer, TaskSerializer, TaskCommentsSerializer,
-    TaskActivityLogsSerializer, TaskNotificationsSerializer, TaskPermissionsSerializer,
+    TaskBoardSerializer, TaskColumnSerializer, TaskSerializer,
+    TaskCommentSerializer, BoardPermissionSerializer
 )
+# AuditLogMixin audit.mixins faylida turibdi deb faraz qilamiz
+from audit.mixins import AuditLogMixin
 
-# ==================== TASK VIEWSETS ====================
-@extend_schema(tags=["TaskBoards - Vazifalar doskasini ko'rish "])
-class TaskBoardsViewSet(viewsets.ModelViewSet):
-    queryset = TaskBoards.objects.all()
-    serializer_class = TaskBoardsSerializer
 
-@extend_schema(tags=["TaskColumns - Vazifalar ustunini ko'rish "])
-class TaskColumnsViewSet(viewsets.ModelViewSet):
-    queryset = TaskColumns.objects.all()
-    serializer_class = TaskColumnsSerializer
+class BaseTaskViewSet(AuditLogMixin, viewsets.ModelViewSet):
+    """ Barcha Task ViewSet'lar uchun umumiy ota-klass """
+    permission_classes = [IsAuthenticated]
 
-@extend_schema(tags=["Task - Vazifalarni ko'rish "])
-class TaskViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        user = self.request.user
+        if not user.organization:
+            return self.queryset.none()
+        return self.queryset.filter(organization=user.organization).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # Frontenddan ishonmay, maktabni backendda majburan ulaymiz
+        serializer.save(
+            organization=self.request.user.organization,
+            created_by=self.request.user
+        )
+
+
+# Doskalar
+class TaskBoardViewSet(BaseTaskViewSet):
+    queryset = TaskBoard.objects.all()
+    serializer_class = TaskBoardSerializer
+
+
+# Ustunlar
+class TaskColumnViewSet(BaseTaskViewSet):
+    queryset = TaskColumn.objects.all()
+    serializer_class = TaskColumnSerializer
+
+    def get_queryset(self):
+        # Ustunlar yaratilgan vaqtiga emas, o'zining position (joylashuv) tartibida chiqishi kerak
+        return super().get_queryset().order_by('position')
+
+
+# Asosiy Vazifalar
+class TaskViewSet(BaseTaskViewSet):
     queryset = Task.objects.all()
     serializer_class = TaskSerializer
 
-@extend_schema(tags=["TaskComments - Vazifalarga yozilgan izohlarni ko'rish "])
-class TaskCommentsViewSet(viewsets.ModelViewSet):
-    queryset = TaskComments.objects.all()
-    serializer_class = TaskCommentsSerializer
 
-@extend_schema(tags=["TaskActivityLogs - Vazifa ustida bajarilgan ishlarni ko'rish "])
-class TaskActivityLogsViewSet(viewsets.ModelViewSet):
-    queryset = TaskActivityLogs.objects.all()
-    serializer_class = TaskActivityLogsSerializer
+# Izohlar
+class TaskCommentViewSet(BaseTaskViewSet):
+    queryset = TaskComment.objects.all()
+    serializer_class = TaskCommentSerializer
 
-@extend_schema(tags=["TaskNotifications - Vazifa eslatmalarni ko'rish "])
-class TaskNotificationsViewSet(viewsets.ModelViewSet):
-    queryset = TaskNotifications.objects.all()
-    serializer_class = TaskNotificationsSerializer
 
-@extend_schema(tags=["TaskPermissions - Vazifaga berilgan ruxsatlarni ko'rish "])
-class TaskPermissionsViewSet(viewsets.ModelViewSet):
-    queryset = TaskPermissions.objects.all()
-    serializer_class = TaskPermissionsSerializer
+# Ruxsatlar
+class BoardPermissionViewSet(BaseTaskViewSet):
+    queryset = BoardPermission.objects.all()
+    serializer_class = BoardPermissionSerializer

@@ -111,6 +111,7 @@ urlpatterns = [
     # Guruh o'qituvchilari ro'yxati va qo'shish
     # GET: /api/groups/<group_id>/teachers/ - Guruh o'qituvchilarini olish
     # POST: /api/groups/<group_id>/teachers/ - Guruhga o'qituvchi qo'shish
+
     path('groups/<uuid:group_pk>/teachers/', views.group_teacher_list_create, name='group-teacher-list'),
 
     # Guruh o'qituvchisi: detail, update, delete

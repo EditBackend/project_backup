@@ -1,31 +1,22 @@
-from audit.models import AuditLog, AuditEntityType, AuditAction
+from audit.models import AuditAction
 from django.core.exceptions import ValidationError
 from django.utils.dateparse import parse_date
-from django.shortcuts import get_object_or_404
-from django.db.models import Avg, Q
-from django.utils import timezone
-from datetime import date
-from django.http import HttpResponse
+from django.db.models import Avg
 from datetime import datetime
-from decimal import Decimal, InvalidOperation
-from rest_framework import viewsets, generics, status
+from rest_framework import viewsets, generics
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
 from drf_spectacular.utils import extend_schema
 from .serializers import (
     GroupListSerializer,
-    GroupDetailSerializer,
-    GroupCreateUpdateSerializer
+    GroupDetailSerializer
 )
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 
 from .models.lesson import OnlineLesson
-from .models.group import Group
+
 from .models import (
-    Student, StudentGroup, StudentPricing, StudentBalances,
+    Student, StudentPricing, StudentBalances,
     StudentTarnsactions, LeaveReason, StudentGroupLeaves,
     StudentFreezes, StudentBalanceHistory, Attendence,
     Room, Course, Group, GroupTeacher,

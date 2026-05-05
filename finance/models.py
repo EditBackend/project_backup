@@ -4,9 +4,6 @@ from django.db import models
 from core.models import BaseModel
 from django.conf import settings
 
-
-
-
 class ExpenseCategory(BaseModel):
     name = models.CharField(max_length=250)
     expense_type = models.ForeignKey('DetailedExpense', on_delete=models.SET_NULL,null=True,blank=True,related_name="expense_categories",   # <--- BU YERNI O'ZGARTIRDINGIZ
@@ -78,11 +75,6 @@ class DetailedExpense(BaseModel):
     comment = models.TextField(blank=True, null=True)
 
 
-
-
-
-
-
 class Bonus(BaseModel):
     BONUS_TYPES = (
         ('course_percent', 'Kurs foizi'),
@@ -119,77 +111,6 @@ class Salary(BaseModel):
     def save(self, *args, **kwargs):
         self.total_amount = self.base_amount + self.bonus_amount - self.fine_amount
         super().save(*args, **kwargs)
-
-
-
-
-
-class WorklyIntegration(BaseModel):
-    """Workly integratsiya sozlamalari"""
-    client_id = models.CharField(max_length=500)
-    client_secret = models.CharField(max_length=500)
-    username = models.CharField(max_length=500)
-    password = models.CharField(max_length=500)
-    is_active = models.BooleanField(default=False)
-    is_connected = models.BooleanField(default=False)
-    last_sync = models.DateTimeField(null=True, blank=True)
-    error_message = models.TextField(blank=True, null=True)
-
-    class Meta:
-        verbose_name = "Workly Integration"
-        verbose_name_plural = "Workly Integrations"
-    # shifrlash
-    def encrypt_field(self, value):
-        """Ma'lumotni shifrlash"""
-        if not value:
-            return value
-        key = settings.SECRET_KEY.encode()[:32]  # 32 bayt
-        from cryptography.fernet import Fernet
-        import base64
-        key = base64.urlsafe_b64encode(key)
-        f = Fernet(key)
-        return f.encrypt(value.encode()).decode()
-
-    def decrypt_field(self, value):
-        """Ma'lumotni deshifrlash"""
-        if not value:
-            return value
-        key = settings.SECRET_KEY.encode()[:32]
-        from cryptography.fernet import Fernet
-        import base64
-        key = base64.urlsafe_b64encode(key)
-        f = Fernet(key)
-        return f.decrypt(value.encode()).decode()
-
-    def save(self, *args, **kwargs):
-        """Saqlashdan oldin shifrlash"""
-        if self.client_id and not self.client_id.startswith('gAAAAA'):
-            self.client_id = self.encrypt_field(self.client_id)
-        if self.client_secret and not self.client_secret.startswith('gAAAAA'):
-            self.client_secret = self.encrypt_field(self.client_secret)
-        if self.username and not self.username.startswith('gAAAAA'):
-            self.username = self.encrypt_field(self.username)
-        if self.password and not self.password.startswith('gAAAAA'):
-            self.password = self.encrypt_field(self.password)
-        super().save(*args, **kwargs)
-
-
-class WorklyAttendance(BaseModel):
-    """Workly dan kelgan ishga kelish ma'lumotlari"""
-    employee = models.ForeignKey('accounts.Employee', on_delete=models.CASCADE, related_name='workly_attendance')
-    date = models.DateField()
-    check_in = models.DateTimeField(null=True, blank=True)
-    check_out = models.DateTimeField(null=True, blank=True)
-    is_late = models.BooleanField(default=False)
-    late_minutes = models.IntegerField(default=0)
-    status = models.CharField(max_length=50, blank=True)
-    workly_id = models.CharField(max_length=255, unique=True)
-    synced_at = models.DateTimeField(auto_now=True)
-
-
-def call_recording_upload_path(instance, filename):
-    """Qo'ng'iroq yozuvlari uchun yo'l"""
-    return f'call_recordings/{instance.call_time.year}/{instance.call_time.month}/{filename}'
 
 
 class CallLog(BaseModel):
