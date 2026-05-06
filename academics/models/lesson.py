@@ -1,5 +1,4 @@
-from core.models import BaseModel, exam_files_upload_path
-from accounts.models import Employee
+from core.models import exam_files_upload_path
 from django.db import models
 from core.models import BaseModel
 from accounts.models import Employee
@@ -92,3 +91,36 @@ class ExamResults(BaseModel):
     score = models.DecimalField(max_digits=12, decimal_places=2)
     comment = models.TextField(null=True, blank=True)
     created_by = models.ForeignKey(Employee, on_delete=models.SET_NULL, null=True, related_name="exam_res_created")
+
+
+from django.db import models
+from core.models import BaseModel
+
+
+# (Yuqorida sizning LessonSchedule, OnlineLesson, Exams kabi modellaringiz turadi...)
+
+class Attendance(BaseModel):
+    """ O'quvchilar davomati (Yo'qlama) """
+
+    # 'student.StudentGroup' deb string ichida beramiz (Circular Import bo'lmasligi uchun)
+    student_group = models.ForeignKey(
+        'academics.StudentGroup',
+        on_delete=models.CASCADE,
+        related_name="attendances"
+    )
+    lesson_date = models.DateField()
+    is_present = models.BooleanField(default=False)
+
+    # DIQQAT: branch, organization, marked_by (created_by) maydonlari
+    # BaseModel ichida borligi uchun bu yerda qayta yozilmaydi!
+
+    class Meta:
+        # BIZNES MANTIQ: Bitta o'quvchiga bir kunda faqat bitta davomat qo'yilishi shart.
+        # Bu qoida adashib 2 marta davomat jo'natilganda bazada dublikat (va pulni 2 marta yechish) oldini oladi.
+        unique_together = ('student_group', 'lesson_date')
+
+    def __str__(self):
+        status = "Kelgan" if self.is_present else "Kelmadi"
+        # hasattr tekshiruvi xatolikni oldini oladi
+        student_name = self.student_group.student.full_name if hasattr(self, 'student_group') else "Noma'lum"
+        return f"{student_name} - {self.lesson_date} ({status})"

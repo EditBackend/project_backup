@@ -27,7 +27,7 @@ class OrganizationsAdmin(admin.ModelAdmin):
     ordering = ['-created_at']
     
     # Tashkilot ichida hamma narsani boshqarish
-    inlines = [BranchInline, SubscriptionInline, OrganizationSettingsInline, ExamSettingsInline]
+    inlines = [BranchInline, SubscriptionInline]
     
     fieldsets = (
         ("Asosiy ma'lumotlar", {
@@ -72,21 +72,3 @@ class OrganizationsAdmin(admin.ModelAdmin):
             obj.created_by = employee
         obj.updated_by = employee
         obj.save()
-
-@admin.register(LandingPage)
-class LandingPageAdmin(admin.ModelAdmin):
-    list_display = ['name', 'organization', 'branch', 'source', 'is_active', 'view_link']
-    list_filter = ['organization', 'source', 'is_active']
-    prepopulated_fields = {"slug": ("name",)}
-
-    def view_link(self, obj):
-        return format_html('<a href="/lp/{}" target="_blank">🔗 Sahifani ochish</a>', obj.slug)
-    view_link.short_description = "Link"
-
-@admin.register(SuperAdmin)
-class SuperAdminAdmin(admin.ModelAdmin):
-    list_display = ['username', 'first_name', 'last_name', 'phone', 'is_active']
-    list_editable = ['is_active']
-
-# Qolgan sodda modullar
-admin.site.register([Section, Branch, Subscriptions])

@@ -1,0 +1,217 @@
+from decimal import Decimal, InvalidOperation
+from django.db import transaction
+from django.db.models import Prefetch, F
+from django.shortcuts import get_object_or_404
+from rest_framework import viewsets, status
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.exceptions import ValidationError
+from academics.models import (
+    Student, StudentGroup, StudentBalances, StudentTransaction, StudentGroupLeaves, StudentFreezes
+)
+from academics.serializers.student import (
+    StudentSerializer, StudentTransactionSerializer, StudentFreezeSerializer, StudentLeaveSerializer
+)
+from audit.models import AuditLog, AuditAction, AuditEntityType
+
+
+def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=None):
+    AuditLog.objects.create(
+        organization=request.user.organization,
+        branch=getattr(request.user, 'branch', None),
+        created_by=request.user,
+        entity_type=entity_type,
+        entity_id=entity_id,
+        action=action,
+        old_data=old_data,
+        new_data=new_data
+    )
+
+
+class StudentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentSerializer
+
+    def get_queryset(self):
+        # Tashkilot himoya qatlami
+        return Student.objects.filter(
+            organization=self.request.user.organization
+        ).select_related('balance_info').order_by('-created_at')
+
+    def perform_create(self, serializer):
+        organization = self.request.user.organization
+
+        # =================================================================
+        # 1. SAAS TARIF LIMITINI TEKSHIRISH
+        # =================================================================
+        # Hozirgi aktiv o'quvchilar sonini hisoblaymiz
+        current_count = Student.objects.filter(
+            organization=organization,
+            status='active'  # is_active o'rniga status='active' ishlatamiz
+        ).count()
+
+        # Limitdan oshib ketmaganligini tekshiramiz
+        if not organization.has_student_capacity(current_count):
+            raise ValidationError({
+                "limit_error": "Tarif limitingiz tugadi! O'quvchilar soni tarifda belgilanganidan oshib ketdi. Iltimos, tarifingizni yangilang."
+            })
+
+        # =================================================================
+        # 2. ASOSIY YARATISH JARAYONI (MOLIYA VA AUDIT BILAN)
+        # =================================================================
+        with transaction.atomic():
+            # Agar hammasi joyida bo'lsa, saqlaymiz
+            student = serializer.save(
+                organization=organization,
+                branch=getattr(self.request.user, 'branch', None),
+                created_by=self.request.user
+            )
+
+            # Yangi talabaga avtomatik 0 so'm balans ochamiz
+            StudentBalances.objects.create(
+                student=student,
+                organization=organization,
+                branch=getattr(self.request.user, 'branch', None)
+            )
+
+        # Audit Log yozib qoldiramiz
+        self._log_audit(
+            entity_type=AuditEntityType.STUDENT,
+            entity_id=student.id,
+            action=AuditAction.CREATE,
+            new_data={"name": student.full_name, "phone": student.phone_number}
+        )
+
+    # (Yordamchi metod Audit uchun)
+    def _log_audit(self, entity_type, entity_id, action, old_data=None, new_data=None):
+        AuditLog.objects.create(
+            organization=self.request.user.organization,
+            branch=getattr(self.request.user, 'branch', None),
+            created_by=self.request.user,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action=action,
+            old_data=old_data,
+            new_data=new_data
+        )
+class TalabalarMalumotView(APIView):
+    """ Barcha talabalar haqida to'liq hisobot (N+1 muammosisiz optimallashtirilgan) """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Optimallashtirilgan so'rov (Database ga 1000 marta emas, 3 marta murojaat qiladi)
+        students = Student.objects.filter(organization=request.user.organization).select_related(
+            'balance_info').prefetch_related(
+            Prefetch('student_groups',
+                     queryset=StudentGroup.objects.select_related('group').filter(left_at__isnull=True)),
+            Prefetch('transactions', queryset=StudentTransaction.objects.order_by('-transaction_date'))
+        )
+
+        result = []
+        for student in students:
+            balans = float(student.balance_info.balance) if hasattr(student, 'balance_info') else 0
+            guruhlar = [sg.group.name for sg in student.student_groups.all()]
+            last_trans = student.transactions.first()
+
+            result.append({
+                "student_id": str(student.id),
+                "student_ism": student.full_name,
+                "student_telefon": student.phone_number,
+                "guruhlar": ", ".join(guruhlar) if guruhlar else "Biriktirilmagan",
+                "balans": balans,
+                "izoh": last_trans.comment if last_trans else "",
+            })
+        return Response(result, status=200)
+
+
+class StudentAddPaymentView(APIView):
+    """ Talabadan to'lov qabul qilish va balansni oshirish """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, student_id):
+        try:
+            with transaction.atomic():
+                # select_for_update() balansni parallel so'rovlarda noto'g'ri hisoblanishidan himoya qiladi
+                student = get_object_or_404(Student.objects.select_for_update(), pk=student_id,
+                                            organization=request.user.organization)
+
+                amount_raw = request.data.get('amount')
+                if not amount_raw: return Response({'error': "Summani kiriting"}, status=400)
+
+                amount = Decimal(str(amount_raw))
+                if amount <= 0: raise InvalidOperation
+
+                # Tranzaksiyani yaratish
+                txn = StudentTransaction.objects.create(
+                    student=student,
+                    amount=amount,
+                    transaction_type='payment',
+                    payment_type=request.data.get('payment_type', 'cash'),
+                    comment=request.data.get('comment', ''),
+                    organization=request.user.organization,
+                    created_by=request.user
+                )
+
+                # Balansni yangilash
+                balance_obj, _ = StudentBalances.objects.get_or_create(
+                    student=student, defaults={'balance': Decimal('0'), 'organization': request.user.organization}
+                )
+                old_balance = balance_obj.balance
+                balance_obj.balance = old_balance + amount
+                balance_obj.save()
+
+            # Audit Log
+            _log_audit(request, AuditEntityType.PAYMENT, txn.id, AuditAction.CREATE,
+                       old_data={'balance': str(old_balance)},
+                       new_data={'amount': str(amount), 'new_balance': str(balance_obj.balance)})
+
+            return Response(
+                {'success': True, 'new_balance': str(balance_obj.balance), 'message': "To'lov qabul qilindi."},
+                status=201)
+
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
+
+
+class StudentLeaveFreezeView(APIView):
+    """ Talabani guruhdan chiqarish yoki muzlatish """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, action):
+        student_id = request.data.get('student')
+        student = get_object_or_404(Student, pk=student_id, organization=request.user.organization)
+
+        if action == 'leave':
+            serializer = StudentLeaveSerializer(data=request.data, context={'request': request})
+            if serializer.is_valid():
+                leave = serializer.save(organization=request.user.organization, created_by=request.user)
+
+                # Guruhdan chiqish vaqtini belgilaymiz
+                sg = leave.student_group
+                sg.left_at = leave.leave_date
+                sg.save()
+
+                # Agar pul qaytarilishi kerak bo'lsa
+                if leave.refund_amount > 0:
+                    with transaction.atomic():
+                        bal, _ = StudentBalances.objects.get_or_create(student=student)
+                        bal.balance += leave.refund_amount
+                        bal.save()
+                        StudentTransaction.objects.create(
+                            student=student, amount=leave.refund_amount, transaction_type='refund',
+                            payment_type='cash', comment="Guruhdan chiqish uchun qaytarildi", created_by=request.user
+                        )
+                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE,
+                           new_data={"action": "Guruhdan chiqdi"})
+                return Response({"message": "Talaba guruhdan chiqarildi"}, status=200)
+
+        elif action == 'freeze':
+            serializer = StudentFreezeSerializer(data=request.data, context={'request': request})
+            if serializer.is_valid():
+                serializer.save(organization=request.user.organization, created_by=request.user)
+                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE,
+                           new_data={"action": "Muzlatildi"})
+                return Response({"message": "Talaba muzlatildi"}, status=201)
+
+        return Response(serializer.errors, status=400)

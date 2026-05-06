@@ -2,9 +2,9 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.db.models import Sum
 from .models.student import (
-    Student, StudentGroup, StudentPricing, StudentBalances,
-    StudentTarnsactions, LeaveReason, StudentGroupLeaves,
-    StudentFreezes, StudentBalanceHistory, Attendence)
+    Student, StudentGroup, StudentBalances,
+     LeaveReason,
+    StudentFreezes, )
 from .models.group import (
     Room, Course, Group, GroupTeacher)
 from .models.lesson import (
@@ -87,41 +87,41 @@ class GroupAdmin(admin.ModelAdmin):
     status_tag.short_description = "Status"
 
 # ==================== FINANCE (Transactions) ====================
-
-@admin.register(StudentTarnsactions)
-class StudentTarnsactionsAdmin(admin.ModelAdmin):
-    list_display = ('student', 'transaction_type_display', 'amount_display', 'payment_type', 'transaction_date', 'accepted_by')
-    list_filter = ('transaction_type', 'payment_type', 'branch', 'transaction_date')
-    search_fields = ('student__full_name', 'comment')
-    date_hierarchy = 'transaction_date' # Vaqt bo'yicha qulay navigatsiya
-
-    def transaction_type_display(self, obj):
-        colors = {'payment': 'green', 'refund': 'red', 'discount': 'blue'}
-        return format_html('<span style="color: {};">{}</span>', colors.get(obj.transaction_type, 'black'), obj.get_transaction_type_display())
-
-    def amount_display(self, obj):
-        return format_html('<b>{}</b>', obj.amount)
-
-# ==================== ATTENDANCE (Davomat) ====================
-
-@admin.register(Attendence)
-class AttendenceAdmin(admin.ModelAdmin):
-    list_display = ('student_name', 'group_name', 'lesson_date', 'status_icon', 'marked_by')
-    list_filter = ('lesson_date', 'is_present', 'branch')
-
-    def student_name(self, obj):
-        return obj.student_group.student.full_name
-
-    def group_name(self, obj):
-        return obj.student_group.group.name
-
-    def status_icon(self, obj):
-        if obj.is_present:
-            return format_html('<span style="color: green; font-size: 20px;">✔</span>')
-        return format_html('<span style="color: red; font-size: 20px;">✘</span>')
-    status_icon.short_description = "Bor/Yo'q"
-
-# ==================== ONLINE LESSONS ====================
+#
+# @admin.register(StudentTarnsactions)
+# class StudentTarnsactionsAdmin(admin.ModelAdmin):
+#     list_display = ('student', 'transaction_type_display', 'amount_display', 'payment_type', 'transaction_date', 'accepted_by')
+#     list_filter = ('transaction_type', 'payment_type', 'branch', 'transaction_date')
+#     search_fields = ('student__full_name', 'comment')
+#     date_hierarchy = 'transaction_date' # Vaqt bo'yicha qulay navigatsiya
+#
+#     def transaction_type_display(self, obj):
+#         colors = {'payment': 'green', 'refund': 'red', 'discount': 'blue'}
+#         return format_html('<span style="color: {};">{}</span>', colors.get(obj.transaction_type, 'black'), obj.get_transaction_type_display())
+#
+#     def amount_display(self, obj):
+#         return format_html('<b>{}</b>', obj.amount)
+#
+# # ==================== ATTENDANCE (Davomat) ====================
+#
+# @admin.register(Attendence)
+# class AttendenceAdmin(admin.ModelAdmin):
+#     list_display = ('student_name', 'group_name', 'lesson_date', 'status_icon', 'marked_by')
+#     list_filter = ('lesson_date', 'is_present', 'branch')
+#
+#     def student_name(self, obj):
+#         return obj.student_group.student.full_name
+#
+#     def group_name(self, obj):
+#         return obj.student_group.group.name
+#
+#     def status_icon(self, obj):
+#         if obj.is_present:
+#             return format_html('<span style="color: green; font-size: 20px;">✔</span>')
+#         return format_html('<span style="color: red; font-size: 20px;">✘</span>')
+#     status_icon.short_description = "Bor/Yo'q"
+#
+# # ==================== ONLINE LESSONS ====================
 
 @admin.register(OnlineLesson)
 class OnlineLessonAdmin(admin.ModelAdmin):

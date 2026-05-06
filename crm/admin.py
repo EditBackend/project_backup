@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django.utils.html import format_html
 from .models import (
-    LeadForm, FormField, CrmSection, CRMSource, CRMPipelines,
+     CrmSection, CRMSource,
     CRMLead, CRMActivity, CRMLeadsHistory, CRMLostReason,
     CRMLeadLost, CRMLeadNotes
 )
@@ -9,10 +9,6 @@ from core.admin import BaseModelAdmin
 
 # ==================== INLINES ====================
 
-class FormFieldInline(admin.TabularInline):
-    model = FormField
-    extra = 1
-    fields = ['label', 'field_type', 'is_required', 'order']
 
 class CRMActivityInline(admin.TabularInline):
     model = CRMActivity
@@ -30,17 +26,6 @@ class CRMLeadLostInline(admin.TabularInline):
     extra = 0
 
 # ==================== CRM ADMINS ====================
-
-@admin.register(LeadForm)
-class LeadFormAdmin(admin.ModelAdmin):
-    list_display = ('name', 'type', 'branch', 'pipeline', 'get_fields_count')
-    list_filter = ('type', 'branch', 'pipeline')
-    search_fields = ('name',)
-    inlines = [FormFieldInline]
-
-    def get_fields_count(self, obj):
-        return obj.fields.count()
-    get_fields_count.short_description = "Maydonlar soni"
 
 @admin.register(CRMLead)
 class CRMLeadAdmin(BaseModelAdmin):
@@ -73,16 +58,16 @@ class CRMLeadAdmin(BaseModelAdmin):
             return format_html('<small style="color: #666;">📢 {}</small>', obj.source.name)
         return "-"
     source_tag.short_description = "Manba"
-
-@admin.register(CRMPipelines)
-class CRMPipelinesAdmin(admin.ModelAdmin):
-    list_display = ['id', 'position', 'name'] # 'id' birinchi, 'position' endi tahrirlasa bo'ladi
-    list_editable = ['position']
-    list_display_links = ['id', 'name']
-
-    def get_leads_count(self, obj):
-        return obj.leads.count()
-    get_leads_count.short_description = "Lidlar soni"
+#
+# @admin.register(CRMPipelines)
+# class CRMPipelinesAdmin(admin.ModelAdmin):
+#     list_display = ['id', 'position', 'name'] # 'id' birinchi, 'position' endi tahrirlasa bo'ladi
+#     list_editable = ['position']
+#     list_display_links = ['id', 'name']
+#
+#     def get_leads_count(self, obj):
+#         return obj.leads.count()
+#     get_leads_count.short_description = "Lidlar soni"
 
 @admin.register(CrmSection)
 class CrmSectionAdmin(BaseModelAdmin):

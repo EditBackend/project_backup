@@ -1,6 +1,7 @@
 from django.db import models
 from core.models import BaseModel
 from accounts.models import Employee
+from core.validators import validate_uz_phone
 class SmsTemplates(BaseModel):
     name = models.CharField(max_length=250)
     text = models.TextField()
@@ -45,7 +46,7 @@ class SMSMessages(BaseModel):
 
     recipent_type = models.CharField(max_length=20, choices=RECIPENT_TYPE)
     recipent_id = models.UUIDField()
-    phone = models.CharField(max_length=20, validators=[uz_phone_validator])
+    phone = models.CharField(max_length=20, validators=[validate_uz_phone])
     text = models.TextField()
     template = models.ForeignKey(SmsTemplates, on_delete=models.SET_NULL, null=True, related_name="SMS_template")
     schedule = models.ForeignKey(SmsSchedules, on_delete=models.SET_NULL, null=True, related_name="schedule")
