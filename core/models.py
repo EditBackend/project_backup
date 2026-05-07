@@ -80,6 +80,7 @@ class BaseModel(models.Model):
         blank=True,
         related_name="%(class)s_updated_by"
     )
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         abstract = True

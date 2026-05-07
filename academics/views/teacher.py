@@ -1,12 +1,11 @@
 from rest_framework import viewsets, status
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
 
-from academics.models.teacher_salary import TeacherSalaryRules, TeacherSalaryCalculations, TeacherSalaryPayments
-from academics.serializers.teacher_salary import (
+from academics.models.teacher import TeacherSalaryRules, TeacherSalaryCalculations, TeacherSalaryPayments
+from academics.serializers.teacher import (
     TeacherSalaryRulesSerializer, TeacherSalaryCalculationsSerializer, TeacherSalaryPaymentsSerializer
 )
 from audit.models import AuditLog, AuditAction, AuditEntityType

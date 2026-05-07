@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from academics.models.teacher_salary import TeacherSalaryRules, TeacherSalaryCalculations, TeacherSalaryPayments
+from academics.models.teacher import TeacherSalaryRules, TeacherSalaryCalculations, TeacherSalaryPayments
 
 
 class TeacherSalaryRulesSerializer(serializers.ModelSerializer):

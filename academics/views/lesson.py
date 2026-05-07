@@ -7,14 +7,27 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from academics.models import (
-    LessonSchedule, Attendence, Exams, ExamResults, OnlineLesson,
-    Group, StudentGroup, StudentBalances, StudentBalanceHistory
+# 1. Modellar importi (Har biri o'z faylidan)
+from academics.models.lesson import (
+    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson
 )
+from academics.models.group import Group  # Group bu yerda!
+from academics.models.student import (
+    StudentGroup, StudentBalances, StudentBalanceHistory
+)
+
+# 2. Serializerlar importi
+# Strukturangizga ko'ra academics/serializers/lesson.py faylidan:
 from academics.serializers.lesson import (
-    LessonScheduleSerializer, LessonScheduleListSerializer,
-    AttendenceSerializer, ExamSerializer, ExamResultSerializer, OnlineLessonSerializer
+    LessonScheduleSerializer,
+    LessonScheduleListSerializer,
+    AttendenceSerializer,
+    ExamSerializer,
+    ExamResultSerializer,
+    OnlineLessonSerializer
 )
+
+# 3. Audit va boshqalar
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
 # --- Yordamchi Audit Funksiyasi ---
@@ -71,7 +84,7 @@ class GroupAttendanceView(APIView):
         lesson_date = request.GET.get('date', date.today().isoformat())
 
         student_groups = StudentGroup.objects.filter(group=group, left_at__isnull=True)
-        attendances = Attendence.objects.filter(student_group__in=student_groups, lesson_date=lesson_date)
+        attendances = Attendance.objects.filter(student_group__in=student_groups, lesson_date=lesson_date)
 
         data = []
         for sg in student_groups:
@@ -93,7 +106,7 @@ class GroupAttendanceView(APIView):
         student_group = get_object_or_404(StudentGroup, pk=student_group_id, group=group)
 
         # Allaqachon davomat qo'yilgan bo'lsa yangilaymiz (yoki xato beramiz)
-        attendance, created = Attendence.objects.update_or_create(
+        attendance, created = Attendance.objects.update_or_create(
             student_group=student_group,
             lesson_date=lesson_date,
             defaults={'is_present': is_present, 'marked_by': request.user}

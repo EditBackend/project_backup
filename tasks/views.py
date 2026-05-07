@@ -6,7 +6,7 @@ from .serializers import (
     TaskCommentSerializer, BoardPermissionSerializer
 )
 # AuditLogMixin audit.mixins faylida turibdi deb faraz qilamiz
-from audit.mixins import AuditLogMixin
+from audit.mixin import AuditLogMixin
 
 
 class BaseTaskViewSet(AuditLogMixin, viewsets.ModelViewSet):

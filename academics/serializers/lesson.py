@@ -1,9 +1,10 @@
 from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
-from academics.models import (
-    LessonSchedule, Attendence, Exams, ExamResults, OnlineLesson, Group
+from academics.models.lesson import (
+    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson
 )
+from academics.models.group import Group
 
 
 class LessonScheduleSerializer(serializers.ModelSerializer):
@@ -42,7 +43,7 @@ class AttendenceSerializer(serializers.ModelSerializer):
     student_name = serializers.CharField(source='student_group.student.full_name', read_only=True)
 
     class Meta:
-        model = Attendence
+        model = Attendance
         fields = ['id', 'student_group', 'student_name', 'lesson_date', 'is_present', 'marked_by']
         read_only_fields = ['id', 'marked_by']
 

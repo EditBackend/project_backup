@@ -53,7 +53,7 @@ class EmployeeSalaryPayment(BaseModel):
     O'qituvchi bo'lmagan xodimlarga (Admin, Farrosh, SMM) to'langan maosh.
     (O'qituvchilar maoshi Academics modulida hisoblanadi!)
     """
-    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='salary_payments')
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='salary_payments_employee')
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     payment_date = models.DateField()
     payment_method = models.CharField(max_length=20, choices=Expense.PAYMENT_METHODS, default='cash')
