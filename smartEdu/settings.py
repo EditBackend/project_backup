@@ -70,8 +70,10 @@ MIDDLEWARE = [
 CORS_ALLOW_ALL_ORIGINS = True
 ROOT_URLCONF = 'smartEdu.urls'
 AUTH_USER_MODEL = "accounts.User"
-
-
+CSRF_TRUSTED_ORIGINS = [
+    'https://project-backup.onrender.com',
+]
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CORS_ALLOW_ALL_ORIGINS = True
 CSRF_TRUSTED_ORIGINS = [
     "https://project_backup.onrender.com",

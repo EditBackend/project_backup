@@ -19,7 +19,6 @@ class Course(BaseModel):
     lessons_per_month = models.PositiveIntegerField(help_text="Bir oydagi darslar soni (masalan: 12 yoki 13)",default=12)
     duration_months = models.PositiveIntegerField(null=True, blank=True,
                                                   help_text="Kursning umumiy davomiyligi (necha oy)")
-
     comment = models.TextField(blank=True)
     # created_at BaseModel'da borligi uchun faqat updated_at qoldirildi
     updated_at = models.DateTimeField(auto_now=True)
