@@ -43,8 +43,6 @@ class User(AbstractUser):
                                      related_name="users")
     branch = models.ForeignKey(Branch, on_delete=models.SET_NULL, null=True, blank=True, related_name="users")
 
-    # Agar rollarni oson ajratib olmoqchi bo'lsangiz (Groupdan tashqari qulaylik uchun)
-    # qo'shimcha maydon qo'shish mumkin:
     ROLE_CHOICES = (
         ('SUPERADMIN', 'Superadmin'),
         ('EMPLOYEE', 'Xodim'),
@@ -65,13 +63,15 @@ class User(AbstractUser):
 
 class Employee(BaseModel):
     # Faqat ishga (HR) oid ma'lumotlar shu yerda turadi
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee_profile")
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="employee")
     photo = models.ImageField(upload_to=employee_avatar_upload_path, null=True, blank=True)
     position = models.CharField(max_length=100, null=True, blank=True)
     is_approved = models.BooleanField(default=False)
 
-    # email va is_active olib tashlandi, chunki ular User da bor. Ular doim sinxron ishlashi kerak.
-
+    @property
+    def full_name(self):
+        # User modelidagi full_name ni qaytaradi
+        return self.user.full_name if self.user else ""
     def __str__(self):
         return f"{self.user.full_name} - {self.position}"
 

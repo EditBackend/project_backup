@@ -2,11 +2,14 @@ from rest_framework import serializers
 from django.utils import timezone
 from datetime import timedelta
 from academics.models.lesson import (
-    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson
+    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson,LessonTime
 )
 from academics.models.group import Group
 
-
+class LessonTimeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LessonTime
+        fields = ['id', 'name', 'code']
 class LessonScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = LessonSchedule

@@ -28,7 +28,7 @@ def _log(entity_type, entity_id, action, old_data, new_data, user):
             entity_id=entity_id,
             action=action,
             old_data=old_data,
-            new_action=new_data,
+            new_data=new_data,
             performed_by=employee,
             performed_by_role=employee.position if employee else 'Tizim / Superadmin',
         )
@@ -64,15 +64,9 @@ class EmployeeViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """
-        XAVFSIZLIK FILTRI (IDOR ga qarshi):
-        Foydalanuvchi faqat o'zining tashkilotiga (Organization)
-        tegishli bo'lgan xodimlarnigina ko'ra oladi.
-        """
         user = self.request.user
         if not user.organization:
-            return Employee.objects.none()  # Tashkiloti yo'qlarga hech narsa ko'rsatilmaydi
-
+            return Employee.objects.none()
         return Employee.objects.filter(
             user__organization=user.organization
         ).select_related('user', 'user__branch')
@@ -84,13 +78,24 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             return EmployeeUpdateSerializer
         return EmployeeSerializer
 
-    def perform_create(self, serializer):
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Ma'lumotni saqlaymiz
         employee = serializer.save()
+
+        # Audit log
         _log('employee', employee.id, 'create', None, {
             'action': 'Yangi xodim qo\'shildi',
             'user_id': str(employee.user_id),
             'position': employee.position,
         }, self.request.user)
+
+        # MUHIM: Endi javob qaytarishda 'EmployeeSerializer'dan foydalanamiz
+        # Shunda Abdulmajidga 'full_name' bilan birga boradi va 500 xato chiqmaydi
+        response_serializer = EmployeeSerializer(employee)
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
     def perform_destroy(self, instance):
         _log('employee', instance.id, 'delete', {
@@ -98,10 +103,6 @@ class EmployeeViewSet(viewsets.ModelViewSet):
             'position': instance.position,
         }, None, self.request.user)
 
-        # Muhim: Employee o'chganda uning User profilini ham o'chirib yuboramiz
         user = instance.user
         instance.delete()
         user.delete()
-
-    # Izoh: Role, UserRole va RolePermission ViewSetlari olib tashlandi,
-# chunki biz Django Group ishlashga o'tdik.

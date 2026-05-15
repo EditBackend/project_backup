@@ -26,19 +26,19 @@ SECRET_KEY = 'django-insecure-jjm*+u=j7_!%n5pvy)@i0qh=p%h=8qufv3)*5kbaoiib&#_dv=
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["smarttalim.pythonanywhere.com", "127.0.0.1"]
+ALLOWED_HOSTS = ['project_backup.onrender.com', '127.0.0.1', 'localhost', '*']
 
 
 # Application definition
 
 INSTALLED_APPS = [
-    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'jazzmin',
     # DRF va JWT
     'rest_framework',
     'drf_spectacular',
@@ -68,13 +68,17 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOWED_ORIGINS = [
-    "https://example.com",
-    "https://www.example.com",
-]
-
 ROOT_URLCONF = 'smartEdu.urls'
 AUTH_USER_MODEL = "accounts.User"
+
+
+CORS_ALLOW_ALL_ORIGINS = True
+CSRF_TRUSTED_ORIGINS = [
+    "https://project_backup.onrender.com",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
 
 TEMPLATES = [
     {

@@ -3,7 +3,6 @@ from core.models import BaseModel
 from accounts.models import Employee
 from academics.models import Group
 
-
 class TeacherSalaryRules(BaseModel):
     """ O'qituvchiga har bir o'quvchi uchun to'lanadigan qoidalar """
     teacher = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="salary_rules")

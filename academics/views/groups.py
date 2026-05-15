@@ -2,10 +2,10 @@ from rest_framework import viewsets, filters
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
-from academics.models import Group, Course, Room
+from academics.models import Group, Course, Room,GroupTeacher
 from academics.serializers.groups import (
     GroupListSerializer, GroupDetailSerializer, GroupWriteSerializer,
-    RoomSerializer, CourseMinimalSerializer
+    RoomSerializer, CourseMinimalSerializer,GroupTeacherSerializer
 )
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
@@ -30,7 +30,20 @@ def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=
     except Exception as e:
         print(f"Audit yozishda xatolik: {e}")
 
+class GroupTeacherViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = GroupTeacherSerializer
 
+    def get_queryset(self):
+        return GroupTeacher.objects.filter(
+            organization=self.request.user.organization
+        ).select_related('group', 'teacher__user')
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organization=self.request.user.organization,
+            created_by=self.request.user
+        )
 class GroupViewSet(viewsets.ModelViewSet):
     """
     Guruhlar uchun to'liq CRUD, filtrlar va Audit Log qatlami.
@@ -39,17 +52,18 @@ class GroupViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['status', 'course', 'room']
     search_fields = ['name']
-
     def get_queryset(self):
         user = self.request.user
-        if not user.organization:
-            return Group.objects.none()
 
-        # N+1 xatoligini annotate va select_related orqali hal qilamiz
-        return Group.objects.filter(organization=user.organization).select_related(
-            'course', 'room'
-        ).annotate(
-            student_count=Count('Sgroup_group', filter=Q(Sgroup_group__left_at__isnull=True), distinct=True),
+        # User yoki Employee_profile orqali org'ni topish
+        org = getattr(user, 'organization', None) or getattr(user, 'employee_profile', user).organization
+
+        # Agar baribir topilmasa (masalan superuser bo'lsa)
+        if not org:
+            return Group.objects.all() # Superadmin hamma narsani ko'rsin
+
+        return Group.objects.filter(organization=org).select_related('course', 'room').annotate(
+            student_count=Count('group_students', filter=Q(group_students__left_at__isnull=True), distinct=True),
             teacher_count=Count('group_teachers', filter=Q(group_teachers__end_date__isnull=True), distinct=True)
         ).order_by('-created_at')
 
@@ -104,11 +118,23 @@ class RoomViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if not self.request.user.organization: return Room.objects.none()
-        return Room.objects.filter(organization=self.request.user.organization)
+        # Userda organization yo'qligi uchun employee orqali tekshiramiz
+        employee = getattr(self.request.user, 'employee', None)
+        if not employee or not employee.organization:
+            return Room.objects.none()
+        return Room.objects.filter(organization=employee.organization)
 
     def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+        employee = getattr(self.request.user, 'employee', None)
+        if employee and employee.organization:
+            serializer.save(
+                organization=employee.organization,
+                created_by=self.request.user
+            )
+        else:
+            # Agar foydalanuvchi tashkilotga biriktirilmagan bo'lsa, xato qaytaramiz
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "Siz hech qaysi tashkilotga biriktirilmagansiz!"})
 
 
 # Kurslar (Lutg'at)
@@ -117,5 +143,23 @@ class CourseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        if not self.request.user.organization: return Course.objects.none()
-        return Course.objects.filter(organization=self.request.user.organization)
+        employee = getattr(self.request.user, 'employee', None)
+
+        if not employee or not employee.organization:
+            return Course.objects.none()
+
+            # 3. Faqat shu xodimning tashkilotiga tegishli kurslarni qaytaramiz
+        return Course.objects.filter(organization=employee.organization)
+    def perform_create(self, serializer):
+    # Userning employee profili orqali tashkilotni topamiz
+        print(self.request.user)
+        employee = getattr(self.request.user, 'employee', None)
+        print("employee -> ", employee)
+        if employee and employee.organization:
+            serializer.save(
+                organization=employee.organization,
+                created_by=self.request.user
+            )
+        else:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "Sizda tashkilot aniqlanmadi, kurs yarata olmaysiz!"})

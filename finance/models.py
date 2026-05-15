@@ -9,6 +9,14 @@ class ExpenseCategory(BaseModel):
 
     def __str__(self):
         return self.name
+class Cashbox(BaseModel):
+    """ Filialdagi kassa va hisob raqamlar (Naqd, Bank, Click) """
+    name = models.CharField(max_length=100)
+    balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    is_active = models.BooleanField(default=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.organization.name})"
 
 
 class Expense(BaseModel):

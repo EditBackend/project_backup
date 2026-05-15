@@ -31,7 +31,7 @@ class GroupTeacherInline(admin.TabularInline):
 
 @admin.register(Student)
 class StudentAdmin(admin.ModelAdmin):
-    list_display = ('display_photo', 'full_name', 'phone_number', 'get_balance', 'status_colored')
+    list_display = ('id','display_photo', 'full_name', 'phone_number', 'get_balance', 'status_colored')
     list_filter = ('status', 'created_at')
     search_fields = ('full_name', 'phone_number')
     inlines = [StudentGroupInline]
@@ -63,7 +63,7 @@ class StudentAdmin(admin.ModelAdmin):
 
 @admin.register(Group)
 class GroupAdmin(admin.ModelAdmin):
-    list_display = ('name', 'course', 'room', 'teacher_display', 'student_count', 'status_tag')
+    list_display = ('id','name', 'course', 'room', 'teacher_display', 'student_count', 'status_tag')
     list_filter = ('status', 'course', 'room')
     search_fields = ('name',)
     inlines = [GroupTeacherInline, LessonScheduleInline]
@@ -112,11 +112,11 @@ class AttendanceAdmin(admin.ModelAdmin):
 @admin.register(Course)
 class CourseAdmin(admin.ModelAdmin):
     # lessons_per_month modelingizdagi nomga to'g'rilandi
-    list_display = ('name', 'monthly_price', 'lessons_per_month', 'code')
+    list_display = ('id','name', 'monthly_price', 'lessons_per_month', 'code')
 
 @admin.register(OnlineLesson)
 class OnlineLessonAdmin(admin.ModelAdmin):
-    list_display = ('title', 'group', 'content_type', 'lesson_date', 'is_published')
+    list_display = ('id','title', 'group', 'content_type', 'lesson_date', 'is_published')
     list_filter = ('content_type', 'is_published', 'group')
 
 admin.site.register(Room)

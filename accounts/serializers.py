@@ -3,6 +3,7 @@ from django.db import transaction
 from django.contrib.auth import get_user_model
 from organizations.models import Organizations, Branch
 from .models import Employee
+from datetime import date
 from core.validators import validate_uz_phone, validate_password_strength
 import re
 
@@ -14,16 +15,19 @@ User = get_user_model()
 # =======================================================
 class EmployeeSerializer(serializers.ModelSerializer):
     """GET, LIST, RETRIEVE uchun serializer"""
-    full_name = serializers.CharField(source='user.full_name', read_only=True)
-    phone = serializers.CharField(source='user.phone', read_only=True)
-    email = serializers.EmailField(source='user.email', read_only=True)
-    birth_date = serializers.DateField(source='user.birth_date', read_only=True)
-    gender = serializers.CharField(source='user.gender', read_only=True)
+    full_name = serializers.ReadOnlyField(source='user.full_name')
+    phone = serializers.ReadOnlyField(source='user.phone')
+    email = serializers.EmailField(source='user.email')
+    birth_date = serializers.DateField(source='user.birth_date')
+    gender = serializers.CharField(source='user.gender')
 
     # Userga ulangan branch va organizationni ko'rsatish
-    branch = serializers.PrimaryKeyRelatedField(source='user.branch', read_only=True)
-    organization = serializers.PrimaryKeyRelatedField(source='user.organization', read_only=True)
-    is_active = serializers.BooleanField(source='user.is_active', read_only=True)
+    branch = serializers.PrimaryKeyRelatedField(
+        queryset=Branch.objects.all(),
+        source='user.branch'
+    )
+    organization = serializers.PrimaryKeyRelatedField(queryset=Organizations.objects.all(), source='user.organization')
+    is_active = serializers.BooleanField(source='user.is_active')
 
     class Meta:
         model = Employee

@@ -8,7 +8,7 @@ from .models import Organizations, Branch, Subscriptions, TariffPlan
 class BranchInline(admin.TabularInline):
     model = Branch
     extra = 1
-    fields = ['name', 'phone', 'is_active']
+    fields = ['id','name', 'phone', 'is_active']
 
 
 class SubscriptionInline(admin.TabularInline):
@@ -34,7 +34,7 @@ class TariffPlanAdmin(admin.ModelAdmin):
 @admin.register(Organizations)
 class OrganizationsAdmin(admin.ModelAdmin):
     # org_username va expired_at o'rniga joriy holat maydonlari ishlatildi
-    list_display = ['name_with_logo', 'status_badge', 'phone', 'get_current_tariff', 'created_at']
+    list_display = ['id','name_with_logo', 'status_badge', 'phone', 'get_current_tariff', 'created_at']
     list_filter = ['status', 'created_at']
     search_fields = ['name', 'phone']
     ordering = ['-created_at']

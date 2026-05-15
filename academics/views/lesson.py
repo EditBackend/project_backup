@@ -9,7 +9,7 @@ from rest_framework.response import Response
 
 # 1. Modellar importi (Har biri o'z faylidan)
 from academics.models.lesson import (
-    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson
+    LessonSchedule, Attendance, Exams, ExamResults, OnlineLesson,LessonTime
 )
 from academics.models.group import Group  # Group bu yerda!
 from academics.models.student import (
@@ -24,7 +24,7 @@ from academics.serializers.lesson import (
     AttendenceSerializer,
     ExamSerializer,
     ExamResultSerializer,
-    OnlineLessonSerializer
+    OnlineLessonSerializer,LessonTimeSerializer
 )
 
 # 3. Audit va boshqalar
@@ -45,8 +45,23 @@ def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=
         new_data=new_data,
         performed_by_role=f"{role} ({request.user.full_name})"
     )
+class LessonTimeViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = LessonTimeSerializer
 
+    def get_queryset(self):
+        return LessonTime.objects.filter(organization=self.request.user.organization)
 
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization)
+class ExamResultViewSet(viewsets.ReadOnlyModelViewSet): # Faqat ko'rish uchun, chunki GradingView orqali kiritiladi
+    permission_classes = [IsAuthenticated]
+    serializer_class = ExamResultSerializer
+
+    def get_queryset(self):
+        return ExamResults.objects.filter(
+            organization=self.request.user.organization
+        ).select_related('exam', 'student')
 # ==========================================
 # 1. DARS JADVALLARI
 # ==========================================
@@ -152,14 +167,26 @@ class ExamsViewSet(viewsets.ModelViewSet):
     serializer_class = ExamSerializer
 
     def get_queryset(self):
-        return Exams.objects.filter(organization=self.request.user.organization).order_by('-exam_date')
+        employee = getattr(self.request.user, 'employee', None)
+        if not employee:
+            return Exams.objects.none()
+        return Exams.objects.filter(organization=employee.organization).order_by('-exam_date')
 
     def perform_create(self, serializer):
-        exam = serializer.save(
-            organization=self.request.user.organization,
-            branch=getattr(self.request.user, 'branch', None),
-            created_by=self.request.user
+        # 1. Employee ni olamiz
+        employee = getattr(self.request.user, 'employee', None)
+
+        # 2. Tekshiramiz: Agar employee bo'lmasa, 'AttributeError' chiqishiga yo'l qo'ymaymiz
+        if employee is None:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "Siz tizimda xodim sifatida ro'yxatdan o'tmagansiz!"})
+
+        # 3. Faqat employee borligiga ishonganimizdan keyin organization ni olamiz
+        serializer.save(
+            organization=employee.organization,
+            created_by=employee
         )
+
         _log_audit(self.request, AuditEntityType.OTHER, exam.id, AuditAction.CREATE, new_data={"title": exam.title})
 
 

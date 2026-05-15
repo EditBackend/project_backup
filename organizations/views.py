@@ -5,6 +5,10 @@ from .serializers import (
     TariffPlanSerializer, OrganizationSerializer,
     SubscriptionSerializer, BranchSerializer
 )
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+
 
 class TariffPlanViewSet(viewsets.ReadOnlyModelViewSet):
     """ Barcha faol tariflarni ko'rish (Start, Basic, Pro...) """
@@ -13,20 +17,58 @@ class TariffPlanViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [AllowAny] # Tariflarni hamma ko'rishi mumkin (Saytda ko'rsatish uchun)
 
 
-class OrganizationViewSet(mixins.RetrieveModelMixin,
-                          mixins.UpdateModelMixin,
-                          mixins.ListModelMixin,
-                          viewsets.GenericViewSet):
-    """ Mijoz FAQAAT o'z tashkilotini ko'radi va tahrirlaydi """
+class OrganizationLoginView(APIView):
+    permission_classes = [] # Hamma kirishi mumkin (Login sahifasi)
+
+    def post(self, request):
+        phone = request.data.get('phone')
+        password = request.data.get('password')
+
+        # 1. Telefon raqami bo'yicha tashkilotni qidiramiz
+        try:
+            organization = Organizations.objects.get(phone=phone)
+        except Organizations.DoesNotExist:
+            return Response(
+                {"detail": "Telefon raqami yoki parol xato!"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+        # 2. Parolni tekshiramiz (Agar modelda parolni oddiy saqlayotgan bo'lsangiz)
+        if organization.password == password:
+            # Muvaffaqiyatli kirdi
+            serializer = OrganizationSerializer(organization)
+            return Response({
+                "message": "Muvaffaqiyatli kirdingiz",
+                "organization": serializer.data
+            }, status=status.HTTP_200_OK)
+        else:
+            # Parol xato
+            return Response(
+                {"detail": "Telefon raqami yoki parol xato!"},
+                status=status.HTTP_401_UNAUTHORIZED
+            )
+
+class OrganizationViewSet(
+    mixins.UpdateModelMixin,
+    mixins.ListModelMixin,
+    mixins.CreateModelMixin,
+    mixins.DestroyModelMixin,
+    mixins.RetrieveModelMixin,
+    viewsets.GenericViewSet
+):
     serializer_class = OrganizationSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # IDOR HIMOYASI: Faqatgina o'z tashkilotini qaytaramiz
         user = self.request.user
+
         if not user.organization:
             return Organizations.objects.none()
+
         return Organizations.objects.filter(id=user.organization.id)
+
+    def perform_create(self, serializer):
+        org = serializer.save()
 
 
 class BranchViewSet(viewsets.ModelViewSet):
@@ -42,11 +84,20 @@ class BranchViewSet(viewsets.ModelViewSet):
         return Branch.objects.filter(organization=user.organization)
 
     def perform_create(self, serializer):
-        # XAVFSIZLIK: Yangi filial yaratilganda uni avtomatik joriy foydalanuvchining tashkilotiga bog'laymiz
-        serializer.save(organization=self.request.user.organization)
+        # Userning employee profili orqali tashkilotni topamiz
+        employee = getattr(self.request.user, 'employee', None)
+
+        if employee and employee.organization:
+            serializer.save(organization=employee.organization)
+        # else:
+        #     # Agar userda tashkilot bo'lmasa, tushunarli xato qaytaramiz
+        #     from rest_framework.exceptions import ValidationError
+        #     raise ValidationError({"detail": "Sizda tashkilot aniqlanmadi, filial yarata olmaysiz!"})
 
 
-class SubscriptionViewSet(viewsets.ReadOnlyModelViewSet):
+class SubscriptionViewSet(mixins.CreateModelMixin,
+                          mixins.ListModelMixin,
+                          viewsets.GenericViewSet):
     """ Mijoz faqat o'ziga tegishli obuna tarixini ko'radi """
     serializer_class = SubscriptionSerializer
     permission_classes = [IsAuthenticated]

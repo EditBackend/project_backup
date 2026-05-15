@@ -1,11 +1,4 @@
-cryptography==42.0.5
 Django==4.2.7
+djangorestframework_simplejwt==5.5.1
 djangorestframework_simplejwt==5.3.1
 drf_spectacular==0.29.0
-openpyxl==3.1.5
-python_dateutil==2.9.0.post0
-Requests==2.33.1
-utils==1.0.2
-django-jazzmin
-django-filter
-django-cors-headers

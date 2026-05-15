@@ -1,21 +1,33 @@
 from django.urls import path
-from .views import ExpenseCategoryViewSet,ExpenseViewSet,BonusViewSet,FineViewSet,EmployeeSalaryPaymentViewSet,FinancialReportAPIView
+from .views import ExpenseCategoryViewSet,ExpenseViewSet,BonusViewSet,FineViewSet,EmployeeSalaryPaymentViewSet,FinancialReportAPIView,CashboxViewSet
+
 
 urlpatterns = [
     # ----------------- KASSA CHIQIMLARI (Expenses) -----------------
     # Xarajat turlari
-    path('categories/', ExpenseCategoryViewSet.as_view({
+    path('expense-categories/', ExpenseCategoryViewSet.as_view({
         'get': 'list',
         'post': 'create'
     }), name='expense-category-list'),
 
-    path('categories/<uuid:pk>/', ExpenseCategoryViewSet.as_view({
+    path('expense-categories/<uuid:pk>/', ExpenseCategoryViewSet.as_view({
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',
         'delete': 'destroy'
     }), name='expense-category-detail'),
+    # ----------------- CASHBOX (KASSA) -----------------
+    path('cashboxes/', CashboxViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='cashbox-list'),
 
+    path('cashboxes/<uuid:pk>/', CashboxViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='cashbox-detail'),
     # Asosiy xarajatlar
     path('expenses/', ExpenseViewSet.as_view({
         'get': 'list',

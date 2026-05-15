@@ -79,10 +79,9 @@ class EmployeeAdmin(admin.ModelAdmin):
             'fields': ('photo', 'get_full_photo')
         }),
         ("Tizim (Avtomatik)", {
-            'fields': ('organization', 'branch', 'created_at', 'updated_at'),
-            'classes': ('collapse',)  # Yashirin qilib qo'yish uchun
+            'fields': ('organization', 'branch', 'created_at', 'updated_at')
         }),
     )
-
+    readonly_fields += ('created_at','updated_at')
     # Employee modelida organization/branch BaseModel dan kelsa:
-    readonly_fields += ('organization', 'branch', 'created_at', 'updated_at')
+    # readonly_fields += ('organization', 'branch', 'created_at', 'updated_at')

@@ -1,11 +1,17 @@
 from rest_framework import serializers
-from .models import ExpenseCategory, Expense, Bonus, Fine, EmployeeSalaryPayment
+from .models import ExpenseCategory, Expense, Bonus, Fine, EmployeeSalaryPayment,Cashbox
 
 class ExpenseCategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = ExpenseCategory
         fields = ['id', 'name']
         read_only_fields = ['id']
+
+class CashboxSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Cashbox
+        fields = ['id', 'name', 'balance', 'is_active']
+        read_only_fields = ['balance']
 
 class ExpenseSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True)

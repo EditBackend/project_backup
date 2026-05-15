@@ -3,14 +3,29 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from .models import (
     CRMPipeline, CRMSource, CRMLostReason,
-    CRMLead, CRMActivity, CRMLeadsHistory, CRMLeadLost
+    CRMLead, CRMActivity, CRMLeadsHistory, CRMLeadLost,CrmSection
 )
 from .serializers import (
     CRMPipelineSerializer, CRMSourceSerializer,
-    CRMLeadSerializer, CRMActivitySerializer, CRMLeadLostSerializer
+    CRMLeadSerializer, CRMActivitySerializer, CRMLeadLostSerializer,CRMLeadsHistorySerializer,CrmSectionSerializer
 )
 
+class CrmSectionViewSet(viewsets.ModelViewSet):
+    """
+    CRM Pipeline bo'limlari (Naborlar) uchun API.
+    """
+    queryset = CrmSection.objects.all().order_by('-created_at')
+    serializer_class = CrmSectionSerializer
 
+    def get_queryset(self):
+        queryset = self.queryset
+        pipeline_id = self.request.query_params.get('pipeline')
+
+        # Agar pipeline_id kelgan bo'lsa, faqat o'sha pipeline'ga tegishli sectionlarni chiqaramiz
+        if pipeline_id:
+            queryset = queryset.filter(pipeline_id=pipeline_id)
+
+        return queryset
 class BaseCRMViewSet(viewsets.ModelViewSet):
     """
     Barcha CRM ViewSetlar uchun Ota-Klass.
@@ -72,7 +87,21 @@ class CRMLeadViewSet(BaseCRMViewSet):
 class CRMActivityViewSet(BaseCRMViewSet):
     queryset = CRMActivity.objects.all()
     serializer_class = CRMActivitySerializer
+class CRMLeadsHistoryViewSet(viewsets.ModelViewSet):
+    serializer_class = CRMLeadsHistorySerializer
+    permission_classes = [IsAuthenticated]
 
+    def get_queryset(self):
+        # Faqat foydalanuvchi tashkilotiga tegishli leadlar tarixini qaytaramiz
+        employee = getattr(self.request.user, 'employee', None)
+        if employee and employee.organization:
+            return CRMLeadsHistory.objects.filter(lead__organization=employee.organization)
+        return CRMLeadsHistory.objects.none()
+
+    def perform_create(self, serializer):
+        # Yaratuvchini avtomatik employee sifatida saqlaymiz
+        employee = getattr(self.request.user, 'employee', None)
+        serializer.save(created_by=employee)
 
 # Lidni rad etish (Lost)
 class CRMLeadLostViewSet(BaseCRMViewSet):

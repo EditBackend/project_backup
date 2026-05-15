@@ -1,20 +1,27 @@
 from django.urls import path
-from .views.groups import GroupViewSet, RoomViewSet, CourseViewSet
+from .views.groups import GroupViewSet, RoomViewSet, CourseViewSet,GroupTeacherViewSet
 from .views.lesson import (LessonScheduleViewSet,
     GroupAttendanceView,
     ExamsViewSet,
     ExamGradingView,
     OnlineLessonViewSet,
-    PublishLessonView )
+    PublishLessonView,LessonTimeViewSet ,ExamResultViewSet)
 from .views.student import (StudentViewSet,
     TalabalarMalumotView,
-    StudentAddPaymentView,
-    StudentLeaveFreezeView)
+    StudentAddPaymentView,StudentGroupLeavesViewSet,
+    StudentLeaveFreezeView,StudentPricingViewSet,StudentGroupViewSet,StudentTransactionViewSet,LeaveReasonViewSet,StudentBalanceHistoryViewSet,StudentBalanceViewSet)
 from .views.teacher import (TeacherSalaryRulesViewSet,
     TeacherSalaryCalculationsViewSet,
     TeacherSalaryPaymentsViewSet)
 
 urlpatterns = [
+    path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list'})),
+    path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view({'get': 'retrieve'})),
+    path('lesson-times/', LessonTimeViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('lesson-times/<uuid:pk>/', LessonTimeViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})),
+    # Exam Results List & Detail
+    path('exam-results/', ExamResultViewSet.as_view({'get': 'list'}), name='exam-result-list'),
+    path('exam-results/<uuid:pk>/', ExamResultViewSet.as_view({'get': 'retrieve'}), name='exam-result-detail'),
     # --- Groups URLlari ---
     path('groups/', GroupViewSet.as_view({'get': 'list', 'post': 'create'}), name='group-list-create'),
     path('groups/<uuid:pk>/', GroupViewSet.as_view({
@@ -48,12 +55,12 @@ urlpatterns = [
 
 
 # lesson
-    path('schedules/', LessonScheduleViewSet.as_view({
+    path('lesson-schedules/', LessonScheduleViewSet.as_view({
         'get': 'list',
         'post': 'create'
     }), name='schedule-list-create'),
 
-    path('schedules/<uuid:pk>/', LessonScheduleViewSet.as_view({
+    path('lesson-schedules/<uuid:pk>/', LessonScheduleViewSet.as_view({
         'get': 'retrieve',
         'put': 'update',
         'patch': 'partial_update',
@@ -62,7 +69,7 @@ urlpatterns = [
 
     # 2. Davomat (Attendance) - APIView bo'lgani uchun .as_view() argumentlarsiz
     # Guruh ID bo'yicha davomatni ko'rish va saqlash
-    path('attendance/group/<uuid:group_id>/', GroupAttendanceView.as_view(), name='group-attendance'),
+    path('attendences/group/<uuid:group_id>/', GroupAttendanceView.as_view(), name='group-attendance'),
 
     # 3. Imtihonlar (Exams)
     path('exams/', ExamsViewSet.as_view({
@@ -165,5 +172,49 @@ urlpatterns = [
         'patch': 'partial_update',
         'delete': 'destroy'
     }), name='teacher-salary-payments-detail'),
+
+    # Individual narxlar
+    path('student-pricings/', StudentPricingViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('student-pricings/<uuid:pk>/', StudentPricingViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})),
+
+    # Talabalarni guruhga qo'shish
+    path('student-groups/', StudentGroupViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('student-groups/<uuid:pk>/', StudentGroupViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})),
+
+    # Tranzaksiyalar (History)
+    path('student-transactions/', StudentTransactionViewSet.as_view({'get': 'list'})),
+    path('student-transactions/<uuid:pk>/', StudentTransactionViewSet.as_view({'get': 'retrieve', 'delete': 'destroy'})),
+
+    # Ketish sabablari
+    path('leave-reasons/', LeaveReasonViewSet.as_view({'get': 'list', 'post': 'create'})),
+    path('leave-reasons/<uuid:pk>/', LeaveReasonViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'})),
+
+    # Balans tarixi
+    path('balance-history/', StudentBalanceHistoryViewSet.as_view({'get': 'list'})),
+    path('balance-history/<uuid:pk>/', StudentBalanceHistoryViewSet.as_view({'get': 'retrieve'})),
+    path('student-balances/', StudentBalanceViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='balance-list-create'),
+
+    path('student-balances/<uuid:pk>/', StudentBalanceViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='balance-detail'),
+
+    # --- Group Teachers API ---
+    path('group-teachers/', GroupTeacherViewSet.as_view({
+        'get': 'list',
+        'post': 'create'
+    }), name='group-teacher-list'),
+
+    path('group-teachers/<uuid:pk>/', GroupTeacherViewSet.as_view({
+        'get': 'retrieve',
+        'put': 'update',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='group-teacher-detail'),
 
 ]

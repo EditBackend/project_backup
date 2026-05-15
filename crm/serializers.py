@@ -3,7 +3,7 @@ from django.utils import timezone
 from core.validators import validate_uz_phone
 from .models import (
     CRMPipeline, CrmSection, CRMSource, CRMLostReason,
-    CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes
+    CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes,CRMLeadsHistory
 )
 from organizations.models import Branch
 from django.contrib.auth import get_user_model
@@ -18,6 +18,11 @@ class CRMPipelineSerializer(serializers.ModelSerializer):
         model = CRMPipeline
         fields = ['id', 'name', 'position']
 
+class CRMLeadsHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CRMLeadsHistory
+        fields = '__all__'
+        read_only_fields = ['created_by']
 
 class CRMSourceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -111,7 +116,15 @@ class CRMActivitySerializer(serializers.ModelSerializer):
         if value.organization != request.user.organization:
             raise serializers.ValidationError("Boshqa tashkilot lidiga harakat (activity) qo'sha olmaysiz.")
         return value
+class CrmSectionSerializer(serializers.ModelSerializer):
+    # O'qish (GET) uchun qo'shimcha ma'lumotlar
+    pipeline_name = serializers.ReadOnlyField(source='pipeline.name')
+    course_name = serializers.ReadOnlyField(source='course.name')
+    teacher_name = serializers.ReadOnlyField(source='teacher.full_name')
 
+    class Meta:
+        model = CrmSection
+        fields = "__all__"
 
 class CRMLeadLostSerializer(serializers.ModelSerializer):
     class Meta:

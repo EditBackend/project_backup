@@ -2,10 +2,17 @@ import re
 from rest_framework import serializers
 from academics.models import (
     Student, StudentGroup, StudentBalances, StudentTransaction,
-    StudentGroupLeaves, StudentFreezes, LeaveReason
+    StudentGroupLeaves, StudentFreezes, LeaveReason,StudentPricing,StudentBalanceHistory
 )
 
+class StudentGroupLeavesSerializer(serializers.ModelSerializer):
+    student_name = serializers.ReadOnlyField(source='student.user.full_name')
+    group_name = serializers.ReadOnlyField(source='group.name')
+    reason_name = serializers.ReadOnlyField(source='reason.name')
 
+    class Meta:
+        model = StudentGroupLeaves
+        fields = '__all__'
 class StudentSerializer(serializers.ModelSerializer):
     balance = serializers.DecimalField(source='balance_info.balance', max_digits=12, decimal_places=2, read_only=True)
 
@@ -60,7 +67,27 @@ class StudentFreezeSerializer(serializers.ModelSerializer):
         return attrs
 
 
-class StudentLeaveSerializer(serializers.ModelSerializer):
+
+
+class StudentPricingSerializer(serializers.ModelSerializer):
     class Meta:
-        model = StudentGroupLeaves
+        model = StudentPricing
         fields = '__all__'
+        read_only_fields = ['organization', 'created_by']
+
+class StudentBalanceSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentBalances
+        fields = '__all__'
+        read_only_fields = ['organization']
+
+class LeaveReasonSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LeaveReason
+        fields = '__all__'
+
+class StudentBalanceHistorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = StudentBalanceHistory
+        fields = '__all__'
+        read_only_fields = ['organization']

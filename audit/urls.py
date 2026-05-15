@@ -1,11 +1,13 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from .views import AuditLogViewSet
 
-router = DefaultRouter()
-# /audit-logs/ manzili orqali murojaat qilinadi
-router.register(r'audit-logs', AuditLogViewSet, basename='auditlog')
+audit_list = AuditLogViewSet.as_view({'get': 'list'})
+audit_detail = AuditLogViewSet.as_view({'get': 'retrieve'})
 
 urlpatterns = [
-    path('', include(router.urls)),
+    # Ro'yxatni ko'rish (Search va Filter bilan)
+    path('audit-logs/', audit_list, name='audit-log-list'),
+    
+    # UUID orqali aniq bir logni ko'rish
+    path('audit-logs/<uuid:pk>/', audit_detail, name='audit-log-detail'),
 ]

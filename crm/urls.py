@@ -1,21 +1,47 @@
-from django.urls import path, include
-from rest_framework.routers import DefaultRouter
+from django.urls import path
 from .views import (
     CRMPipelineViewSet, CRMSourceViewSet,
-    CRMLeadViewSet, CRMActivityViewSet, CRMLeadLostViewSet
+    CRMLeadViewSet, CRMActivityViewSet, CRMLeadLostViewSet,CRMLeadsHistoryViewSet,CrmSectionViewSet
 )
 
-router = DefaultRouter()
-
-# Lug'atlar
-router.register(r'crm/pipelines', CRMPipelineViewSet, basename='crm-pipeline')
-router.register(r'crm/sources', CRMSourceViewSet, basename='crm-source')
-
-# Asosiy CRM
-router.register(r'crm/leads', CRMLeadViewSet, basename='crm-lead')
-router.register(r'crm/activities', CRMActivityViewSet, basename='crm-activity')
-router.register(r'crm/lost-leads', CRMLeadLostViewSet, basename='crm-lost-lead')
-
 urlpatterns = [
-    path('', include(router.urls)),
+    # ====================== PIPELINES ======================
+    path('crm/pipelines/', CRMPipelineViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-pipeline-list'),
+    path('crm/pipelines/<int:pk>/', CRMPipelineViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-pipeline-detail'),
+
+    # ====================== SOURCES ======================
+    path('crm/sources/', CRMSourceViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-source-list'),
+    path('crm/sources/<int:pk>/', CRMSourceViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-source-detail'),
+    path('crm/history/', CRMLeadsHistoryViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-history-list'),
+    path('crm/history/<int:pk>/', CRMLeadsHistoryViewSet.as_view({
+        'get': 'retrieve',
+        'patch': 'partial_update',
+        'delete': 'destroy'
+    }), name='crm-history-detail'),
+    path('crm/sections/', CrmSectionViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-section-list'),
+    path('crm/sections/<uuid:pk>/', CrmSectionViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-section-detail'),
+
+    # ====================== LEADS ======================
+    path('crm/leads/', CRMLeadViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-lead-list'),
+    path('crm/leads/<int:pk>/', CRMLeadViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-lead-detail'),
+
+    # ====================== ACTIVITIES ======================
+    path('crm/activities/', CRMActivityViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-activity-list'),
+    path('crm/activities/<int:pk>/', CRMActivityViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-activity-detail'),
+
+    # ====================== LOST LEADS ======================
+    path('crm/lost-leads/', CRMLeadLostViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-lost-lead-list'),
+    path('crm/lost-leads/<int:pk>/', CRMLeadLostViewSet.as_view({
+        'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
+    }), name='crm-lost-lead-detail'),
 ]

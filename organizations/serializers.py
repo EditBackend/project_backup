@@ -27,7 +27,6 @@ class BranchSerializer(serializers.ModelSerializer):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     # Frontend uchun qulaylik: Tashkilot bilan birga uning filiallari va aktiv obunasini ham qaytaramiz
-    branches = BranchSerializer(many=True, read_only=True)
     active_subscription = serializers.SerializerMethodField()
 
     def validate(self, attrs):

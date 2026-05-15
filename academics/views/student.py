@@ -8,10 +8,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from academics.models import (
-    Student, StudentGroup, StudentBalances, StudentTransaction, StudentGroupLeaves, StudentFreezes
+    Student, StudentGroup, StudentBalances, StudentTransaction, StudentGroupLeaves, StudentFreezes,StudentPricing,LeaveReason,StudentBalanceHistory
 )
 from academics.serializers.student import (
-    StudentSerializer, StudentTransactionSerializer, StudentFreezeSerializer, StudentLeaveSerializer
+    StudentSerializer, StudentTransactionSerializer, StudentFreezeSerializer,StudentPricingSerializer,StudentGroupSerializer,LeaveReasonSerializer,StudentBalanceHistorySerializer,StudentBalanceSerializer,StudentGroupLeavesSerializer
 )
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
@@ -29,6 +29,9 @@ def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=
     )
 
 
+class StudentGroupLeavesViewSet(viewsets.ModelViewSet):
+    queryset = StudentGroupLeaves.objects.all().order_by('-leave_date')
+    serializer_class = StudentGroupLeavesSerializer
 class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
@@ -183,7 +186,7 @@ class StudentLeaveFreezeView(APIView):
         student = get_object_or_404(Student, pk=student_id, organization=request.user.organization)
 
         if action == 'leave':
-            serializer = StudentLeaveSerializer(data=request.data, context={'request': request})
+            serializer = StudentLeavesSerializer(data=request.data, context={'request': request})
             if serializer.is_valid():
                 leave = serializer.save(organization=request.user.organization, created_by=request.user)
 
@@ -215,3 +218,62 @@ class StudentLeaveFreezeView(APIView):
                 return Response({"message": "Talaba muzlatildi"}, status=201)
 
         return Response(serializer.errors, status=400)
+
+
+# 1. Individual narxlar
+class StudentPricingViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentPricingSerializer
+    def get_queryset(self):
+        return StudentPricing.objects.filter(organization=self.request.user.organization)
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+
+# 2. Guruhga biriktirish (StudentGroup)
+class StudentGroupViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentGroupSerializer
+    def get_queryset(self):
+        return StudentGroup.objects.filter(organization=self.request.user.organization)
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+
+# 3. Tranzaksiyalar tarixi (Faqat ko'rish va o'chirish/tahrirlash uchun)
+class StudentTransactionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentTransactionSerializer
+    def get_queryset(self):
+        return StudentTransaction.objects.filter(organization=self.request.user.organization)
+
+# 4. Ketish sabablari (Lug'at)
+class LeaveReasonViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = LeaveReasonSerializer
+    def get_queryset(self):
+        return LeaveReason.objects.filter(organization=self.request.user.organization)
+    def perform_create(self, serializer):
+        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+
+# 5. Balans tarixi
+class StudentBalanceHistoryViewSet(viewsets.ReadOnlyModelViewSet): # Faqat o'qish uchun
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentBalanceHistorySerializer
+    def get_queryset(self):
+        return StudentBalanceHistory.objects.filter(organization=self.request.user.organization)
+
+class StudentBalanceViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = StudentBalanceSerializer
+
+    def get_queryset(self):
+        # Faqat o'z tashkilotining balanslarini ko'radi
+        return StudentBalances.objects.filter(
+            organization=self.request.user.organization
+        ).select_related('student').order_by('-balance')
+
+    def perform_create(self, serializer):
+        # Balans yaratilayotganda avtomatik tashkilot va filialni biriktiramiz
+        serializer.save(
+            organization=self.request.user.organization,
+            branch=getattr(self.request.user, 'branch', None)
+        )

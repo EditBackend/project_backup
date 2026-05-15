@@ -2,6 +2,7 @@ from django.db import models
 import uuid
 from core.validators import validate_uz_phone
 from core.models import BaseModel
+from django.core.validators import MinLengthValidator
 
 #3.213.000 ->
 # ════════════════════════════════════════════════════════════════
@@ -39,9 +40,17 @@ class Organizations(models.Model):
     logo = models.FileField(upload_to="org/logos/", null=True, blank=True)
     address = models.TextField(blank=True)
     phone = models.CharField(max_length=20, validators=[validate_uz_phone], unique=True)
+    password = models.CharField(
+        max_length=32,
+        validators=[
+            MinLengthValidator(
+                6,
+                message="Parol kamida 6 ta belgidan iborat bo‘lishi kerak"
+            )
+        ]
+    )
     status = models.CharField(max_length=20, choices=STATUS, default="active")
 
-    # Ortiqcha org_username, org_password va superadmin maydonlari olib tashlandi
     work_start_time = models.TimeField(null=True, blank=True, verbose_name="Ish boshlanishi")
     work_end_time = models.TimeField(null=True, blank=True, verbose_name="Ish tugashi")
 

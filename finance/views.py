@@ -4,13 +4,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django.db.models import Sum
 from datetime import date
+from rest_framework import viewsets, filters
 from django_filters.rest_framework import DjangoFilterBackend
 
 from audit.models import AuditLog, AuditAction, AuditEntityType
-from .models import ExpenseCategory, Expense, Bonus, Fine, EmployeeSalaryPayment
+from .models import ExpenseCategory, Expense, Bonus, Fine, EmployeeSalaryPayment,Cashbox
 from .serializers import (
     ExpenseCategorySerializer, ExpenseSerializer,
-    BonusSerializer, FineSerializer, EmployeeSalaryPaymentSerializer
+    BonusSerializer, FineSerializer, EmployeeSalaryPaymentSerializer,CashboxSerializer
 )
 # Talaba to'lovlari (Kirim) ni hisoblash uchun Academics dan import qilamiz
 from academics.models import StudentTransaction
@@ -123,6 +124,26 @@ class FinancialReportAPIView(APIView):
             "net_profit": float(net_profit),
             "status": "Foyda" if net_profit >= 0 else "Zarar"
         })
+
+class CashboxViewSet(viewsets.ModelViewSet):
+    serializer_class = CashboxSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['name']
+
+    def get_queryset(self):
+        user = self.request.user
+        if not user.organization:
+            return Cashbox.objects.none()
+        return Cashbox.objects.filter(organization=user.organization).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # Kassa yaratilganda avtomatik tashkilot va filialni bog'laymiz
+        serializer.save(
+            organization=self.request.user.organization,
+            branch=getattr(self.request.user, 'branch', None),
+            created_by=self.request.user
+        )
 
 
 # from rest_framework import viewsets

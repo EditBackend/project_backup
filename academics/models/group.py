@@ -15,10 +15,8 @@ class Course(BaseModel):
     name = models.CharField(max_length=250)
     code = models.CharField(max_length=200, blank=True)
     monthly_price = models.DecimalField(max_digits=10, decimal_places=2)
-
     # lesson (vaqt) olib tashlandi, chunki vaqt guruhga tegishli.
-
-    lessons_per_month = models.PositiveIntegerField(help_text="Bir oydagi darslar soni (masalan: 12 yoki 13)")
+    lessons_per_month = models.PositiveIntegerField(help_text="Bir oydagi darslar soni (masalan: 12 yoki 13)",default=12)
     duration_months = models.PositiveIntegerField(null=True, blank=True,
                                                   help_text="Kursning umumiy davomiyligi (necha oy)")
 
@@ -39,7 +37,6 @@ class Group(BaseModel):
     name = models.CharField(max_length=250)
     course = models.ForeignKey(Course, on_delete=models.SET_NULL, null=True, related_name="groups")
     room = models.ForeignKey(Room, on_delete=models.SET_NULL, null=True, related_name="groups")
-
     status = models.CharField(max_length=20, choices=STATUS, default="active")
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)  # Ba'zi guruhlar muddatsiz bo'lishi mumkin
@@ -53,11 +50,9 @@ class Group(BaseModel):
 class GroupTeacher(BaseModel):
     group = models.ForeignKey(Group, on_delete=models.CASCADE, related_name="group_teachers")
     teacher = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name="teacher_groups")
-
     start_date = models.DateField()
     # O'qituvchi hali ketmagan bo'lsa bo'sh turadi:
     end_date = models.DateField(null=True, blank=True)
-
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Yangilangan vaqt")
 
     def __str__(self):
