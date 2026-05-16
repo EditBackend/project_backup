@@ -9,7 +9,7 @@ from academics.models import Group, Course, Room, StudentGroup, GroupTeacher
 class RoomSerializer(serializers.ModelSerializer):
     class Meta:
         model = Room
-        fields = ['id', 'name', 'capacity','organization']
+        fields = ['id', 'name', 'capacity']
         read_only_fields = ['id']
 
 
@@ -17,6 +17,18 @@ class CourseMinimalSerializer(serializers.ModelSerializer):
     class Meta:
         model = Course
         fields = ['id', 'name', 'monthly_price']
+
+class GroupTeacherSerializer(serializers.ModelSerializer):
+    teacher_name = serializers.CharField(source='teacher.user.full_name', read_only=True)
+    group_name = serializers.CharField(source='group.name', read_only=True)
+
+    class Meta:
+        model = GroupTeacher
+        fields = [
+            'id', 'group', 'group_name', 'teacher', 'teacher_name',
+            'start_date', 'end_date', 'organization'
+        ]
+        read_only_fields = ['organization']
 
 
 class GroupListSerializer(serializers.ModelSerializer):
@@ -88,11 +100,15 @@ class GroupWriteSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         request = self.context.get('request')
-        org = request.user.organization if request else None
+        org = request.user.organization_id if request else None
 
         # 1. Tashkilot xavfsizligi (IDOR oldini olish)
         course_id = attrs.get('course_id')
-        if course_id and not Course.objects.filter(id=course_id, organization=org).exists():
+        print("org -> ", org)
+        print("course_id -> ", course_id)
+        print("course_id -> ", Course.objects.filter(organization_id=org))
+
+        if course_id and not Course.objects.filter(id=course_id).exists():
             raise serializers.ValidationError({"course_id": "Kurs topilmadi yoki boshqa maktabga tegishli."})
 
         room_id = attrs.get('room_id')
@@ -169,9 +185,3 @@ class GroupWriteSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         return GroupDetailSerializer(instance, context=self.context).data
-
-# Buni academics/serializers/groups.py faylining oxiriga qo'shing:
-class GroupTeacherSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = GroupTeacher
-        fields = '__all__'  # yoki o'zingizga kerakli maydonlar ro'yxati

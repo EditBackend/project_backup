@@ -38,13 +38,15 @@ class StudentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         # Tashkilot himoya qatlami
+        print("organization -> ", self.request.user.organization)
         return Student.objects.filter(
             organization=self.request.user.organization
         ).select_related('balance_info').order_by('-created_at')
 
     def perform_create(self, serializer):
+        print("organization -> ", self.request.user.organization)
         organization = self.request.user.organization
-
+        print("organization ->", organization)
         # =================================================================
         # 1. SAAS TARIF LIMITINI TEKSHIRISH
         # =================================================================
@@ -55,10 +57,10 @@ class StudentViewSet(viewsets.ModelViewSet):
         ).count()
 
         # Limitdan oshib ketmaganligini tekshiramiz
-        if not organization.has_student_capacity(current_count):
-            raise ValidationError({
-                "limit_error": "Tarif limitingiz tugadi! O'quvchilar soni tarifda belgilanganidan oshib ketdi. Iltimos, tarifingizni yangilang."
-            })
+        # if not organization.has_student_capacity(current_count):
+        #     raise ValidationError({
+        #         "limit_error": "Tarif limitingiz tugadi! O'quvchilar soni tarifda belgilanganidan oshib ketdi. Iltimos, tarifingizni yangilang."
+        #     })
 
         # =================================================================
         # 2. ASOSIY YARATISH JARAYONI (MOLIYA VA AUDIT BILAN)

@@ -19,7 +19,10 @@ class StudentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Student
         fields = '__all__'
-        read_only_fields = ['id', 'status', 'coins']
+        read_only_fields = [
+            'id', 'status', 'coins',
+            'organization', 'branch', 'created_by'
+        ]
 
     def validate_phone_number(self, value):
         clean_number = re.sub(r'\D', '', value)

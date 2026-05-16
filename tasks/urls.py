@@ -1,11 +1,11 @@
 from django.urls import path, include
-from rest_framework.routers import SimpleRouter  # DefaultRouter o'rniga SimpleRouter
+from rest_framework.routers import SimpleRouter
 from .views import (
     TaskBoardViewSet, TaskColumnViewSet, TaskViewSet,
     TaskCommentViewSet, BoardPermissionViewSet
 )
 
-router = SimpleRouter()  # Shu yer o'zgardi
+router = SimpleRouter()
 
 router.register(r'tasks/boards', TaskBoardViewSet, basename='task-board')
 router.register(r'tasks/columns', TaskColumnViewSet, basename='task-column')

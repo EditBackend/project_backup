@@ -52,6 +52,7 @@ class GroupViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_fields = ['status', 'course', 'room']
     search_fields = ['name']
+
     def get_queryset(self):
         user = self.request.user
 
