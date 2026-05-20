@@ -13,8 +13,9 @@ from .views.student import (StudentViewSet,
 from .views.teacher import (TeacherSalaryRulesViewSet,
     TeacherSalaryCalculationsViewSet,
     TeacherSalaryPaymentsViewSet)
-
+from .views.student import StudentViewSet  # Sizning viewsetingiz
 urlpatterns = [
+    path('students/<uuid:pk>/add-to-group/', StudentViewSet.as_view({'post': 'add_to_group'}), name='student-add-to-group'),
     path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list'})),
     path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view({'get': 'retrieve'})),
     path('lesson-times/', LessonTimeViewSet.as_view({'get': 'list', 'post': 'create'})),
