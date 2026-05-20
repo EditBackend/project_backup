@@ -16,6 +16,8 @@ from .views.teacher import (TeacherSalaryRulesViewSet,
 from .views.student import StudentViewSet  # Sizning viewsetingiz
 urlpatterns = [
     path('students/<uuid:pk>/add-to-group/', StudentViewSet.as_view({'post': 'add_to_group'}), name='student-add-to-group'),
+    # Talabaning balans holatini olish uchun path
+    path('students/<uuid:pk>/balance-status/', StudentBalanceViewSet.as_view({'get': 'retrieve'}), name='student-balance-status'),
     path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list'})),
     path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view({'get': 'retrieve'})),
     path('lesson-times/', LessonTimeViewSet.as_view({'get': 'list', 'post': 'create'})),
