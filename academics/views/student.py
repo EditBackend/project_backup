@@ -104,7 +104,8 @@ class StudentViewSet(viewsets.ModelViewSet):
             new_data=new_data
         )
 
-    # 2. ALOHIDA METOD SIFATIDA CHIQARAMIZ (Ichkarida emas!)
+
+    # 2. ALOHIDA METOD SIFATIDA CHIQARAMIZ
     @action(detail=True, methods=['post'], url_path='add-to-group')
     def add_to_group(self, request, pk=None):
         student = self.get_object()
@@ -114,14 +115,31 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({"error": "group_id majburiy maydon!"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # Agar ManyToMany bo'lsa shunday qoladi.
-            # Agar Student modelida guruh ForeignKey bo'lsa: student.group_id = group_id qilinadi
-            student.groups.add(group_id)
-            student.save()
+            # 🔥 XATO SHU YERDA EDI: student.groups.add(group_id) o'rniga
+            # StudentGroup modeli orqali yangi bog'liqlik (yozuv) yaratamiz:
+
+            # Agar talaba allaqachon shu guruhda faol bo'lsa, qayta qo'shmaymiz
+            already_exists = StudentGroup.objects.filter(
+                student=student,
+                group_id=group_id,
+                left_at__isnull=True  # Guruhdan chiqib ketmagan bo'lsa
+            ).exists()
+
+            if already_exists:
+                return Response({"message": "Talaba ushbu guruhda allaqachon bor!"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Guruhga yangi biriktirish yaratamiz
+            StudentGroup.objects.create(
+                student=student,
+                group_id=group_id,
+                organization=request.user.organization,
+                created_by=request.user
+            )
+
             return Response({"message": "Talaba guruhga muvaffaqiyatli qo'shildi"}, status=status.HTTP_200_OK)
+
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-
 class TalabalarMalumotView(APIView):
     """ Barcha talabalar haqida to'liq hisobot (N+1 muammosisiz optimallashtirilgan) """
     permission_classes = [IsAuthenticated]
