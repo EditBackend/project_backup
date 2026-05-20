@@ -115,23 +115,22 @@ class StudentViewSet(viewsets.ModelViewSet):
             return Response({"error": "group_id majburiy maydon!"}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
-            # 🔥 XATO SHU YERDA EDI: student.groups.add(group_id) o'rniga
-            # StudentGroup modeli orqali yangi bog'liqlik (yozuv) yaratamiz:
-
-            # Agar talaba allaqachon shu guruhda faol bo'lsa, qayta qo'shmaymiz
             already_exists = StudentGroup.objects.filter(
                 student=student,
                 group_id=group_id,
-                left_at__isnull=True  # Guruhdan chiqib ketmagan bo'lsa
+                left_at__isnull=True
             ).exists()
 
             if already_exists:
                 return Response({"message": "Talaba ushbu guruhda allaqachon bor!"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # Guruhga yangi biriktirish yaratamiz
+            # 🔥 joined_at maydoniga bugungi sanani berib yuboramiz:
+            from django.utils import timezone
+
             StudentGroup.objects.create(
                 student=student,
                 group_id=group_id,
+                joined_at=timezone.now().date(),  # ✅ BU QATOR QO'SHILDI
                 organization=request.user.organization,
                 created_by=request.user
             )
