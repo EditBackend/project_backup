@@ -112,6 +112,66 @@ class GroupViewSet(viewsets.ModelViewSet):
                    old_data={"name": instance.name, "status": instance.status}, new_data=None)
         instance.delete()
 
+        @action(detail=True, methods=['patch', 'delete'], url_path='attendences')
+        def manage_group_attendance(self, request, pk=None):
+            """
+            Guruh ID si orqali shu guruhning davomatini tahrirlash (PATCH) yoki o'chirish (DELETE)
+            """
+            from academics.models import Attendance  # Sizdagi davomat modeli nomi (agar nomi boshqacha bo'lsa moslang)
+
+            group = self.get_object()
+            date = request.query_params.get('date') or request.data.get('date')
+
+            if not date:
+                return Response(
+                    {"error": "Sana (date) yuborilishi shart! Masalan: ?date=2026-05-20"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Shu guruh va shu sanadagi davomat ob'ektini qidiramiz
+            attendance_records = Attendance.objects.filter(group=group, date=date)
+
+            if not attendance_records.exists():
+                return Response(
+                    {"error": "Ushbu guruh va sana uchun hech qanday davomat topilmadi!"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # 1. Davomatni o'chirish (DELETE)
+            if request.method == 'DELETE':
+                count = attendance_records.count()
+                attendance_records.delete()
+
+                # Audit yozamiz
+                _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.DELETE,
+                           old_data={"group": group.name, "date": str(date), "deleted_count": count})
+
+                return Response({"message": "Davomat muvaffaqiyatli o'chirildi"}, status=status.HTTP_200_OK)
+
+            # 2. Davomatni tahrirlash (PATCH)
+            elif request.method == 'PATCH':
+                students_data = request.data.get('students', [])  # [{student_id: 1, is_present: True}] ko'rinishida
+
+                if not students_data:
+                    return Response({"error": "Yangilanadigan talabalar ro'yxati (students) yuborilmadi!"}, status=400)
+
+                with transaction.atomic():
+                    for item in students_data:
+                        Attendance.objects.filter(
+                            group=group,
+                            date=date,
+                            student_id=item.get('student_id')
+                        ).update(
+                            status=item.get('status'),  # yoki 'is_present' sizdagi maydon nomiga qarab
+                            updated_by=request.user
+                        )
+
+                # Audit yozamiz
+                _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.UPDATE,
+                           new_data={"group": group.name, "date": str(date), "action": "Davomat tahrirlandi"})
+
+                return Response({"message": "Davomat muvaffaqiyatli yangilandi"}, status=status.HTTP_200_OK)
+
 
 # Xonalar
 class RoomViewSet(viewsets.ModelViewSet):

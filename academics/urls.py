@@ -18,6 +18,15 @@ urlpatterns = [
     path('students/<uuid:pk>/add-to-group/', StudentViewSet.as_view({'post': 'add_to_group'}), name='student-add-to-group'),
     # Talabaning balans holatini olish uchun path
     path('students/<uuid:pk>/balance-status/', StudentBalanceViewSet.as_view({'get': 'retrieve'}), name='student-balance-status'),
+#davomatni guruh IDsi orqali tahrirlash va o'chirish linki
+    path(
+        'attendences/group/<uuid:pk>/', # Agar guruh ID raqam bo'lsa <int:pk> qiling
+        GroupViewSet.as_view({
+            'patch': 'manage_group_attendance',
+            'delete': 'manage_group_attendance'
+        }),
+        name='group-attendance-legacy-bridge'
+    ),
     path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list'})),
     path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view({'get': 'retrieve'})),
     path('lesson-times/', LessonTimeViewSet.as_view({'get': 'list', 'post': 'create'})),
