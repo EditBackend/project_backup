@@ -39,18 +39,6 @@ class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
 
-    @action(detail=True, methods=['post'], url_path='add-to-group')
-    def add_to_group(self, request, pk=None):
-        student = self.get_object()
-        group_id = request.data.get('group_id')  # Frontend guruh ID sini yuboradi
-        if not group_id:
-            return Response({"error": "group_id majburiy"}, status=status.HTTP_400_BAD_REQUEST)
-            # Bu yerda talabani guruhga biriktirish mantiqini yozasiz
-            # Masalan: student.group_id = group_id yoki student.groups.add(group_id)
-            # Modellaringiz tuzilishiga qarab yoziladi.
-        student.save()
-        return Response({"message": "Talaba guruhga muvaffaqiyatli qo'shildi"}, status=status.HTTP_200_OK)
-
     def get_queryset(self):
         # Tashkilot himoya qatlami
         print("organization -> ", self.request.user.organization)
@@ -115,6 +103,23 @@ class StudentViewSet(viewsets.ModelViewSet):
             old_data=old_data,
             new_data=new_data
         )
+
+        @action(detail=True, methods=['post'], url_path='add-to-group')
+        def add_to_group(self, request, pk=None):
+            student = self.get_object()
+            group_id = request.data.get('group_id')
+            if not group_id:
+                return Response({"error": "group_id majburiy maydon!"}, status=status.HTTP_400_BAD_REQUEST)
+            # Talabani guruhga qo'shish mantiqi (Sizda ManyToMany bo'lsa .add(), ForeignKey bo'lsa to'g'ridan-to'g'ri biriktiriladi)
+            try:
+                # Agar talaba modelida 'groups' degan ManyToMany maydon bo'lsa:
+                student.groups.add(group_id)
+                # Agar mantiq boshqacha bo'lsa (masalan student.group_id = group_id), shunga moslang
+                student.save()
+                return Response({"message": "Talaba guruhga muvaffaqiyatli qo'shildi"}, status=status.HTTP_200_OK)
+            except Exception as e:
+                return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 class TalabalarMalumotView(APIView):
     """ Barcha talabalar haqida to'liq hisobot (N+1 muammosisiz optimallashtirilgan) """
     permission_classes = [IsAuthenticated]
