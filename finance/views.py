@@ -6,7 +6,8 @@ from django.db.models import Sum
 from datetime import date
 from rest_framework import viewsets, filters
 from django_filters.rest_framework import DjangoFilterBackend
-
+from django.utils import timezone
+from datetime import timedelta
 from audit.models import AuditLog, AuditAction, AuditEntityType
 from .models import ExpenseCategory, Expense, Bonus, Fine, EmployeeSalaryPayment,Cashbox
 from .serializers import (
@@ -145,6 +146,52 @@ class CashboxViewSet(viewsets.ModelViewSet):
             created_by=self.request.user
         )
 
+
+class StudentPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # To'lovlar ro'yxatini ko'rish (Frontendchi 404 degan GET so'rovi uchun)
+        payments = StudentTransaction.objects.filter(
+            organization=request.user.organization,
+            transaction_type='payment'
+        ).order_by('-created_at')
+        # Bu yerda serializer bo'lsa serializer_class dan o'tkazing, yo'q bo'lsa oddiy list:
+        return Response({"status": "Success", "message": "To'lovlar ro'yxati joyi"})
+
+    def post(self, request):
+        student_id = request.data.get('student')  # yoki student_id
+        amount = request.data.get('amount')
+
+        if not student_id or not amount:
+            return Response({"error": "Talaba va summa yuborilishi shart!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 🔥 DUBLE TO'LOVNING OLDINI OLISH (IDEMPOTENCY):
+        # Oxirgi 1 daqiqa ichida aynan shu talaba tomonidan aynan shu summadagi to'lov bo'lganmi?
+        bir_daqiqa_oldin = timezone.now() - timedelta(minutes=1)
+        double_check = StudentTransaction.objects.filter(
+            student_id=student_id,
+            amount=amount,
+            created_at__gte=bir_daqiqa_oldin
+        ).exists()
+
+        if double_check:
+            return Response(
+                {"error": "Tizim dublicate to'lovni aniqladi! Iltimos 1 daqiqa kuting yoki tugmani qayta bosmang."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Agar hammasi yaxshi bo'lsa, to'lovni yaratamiz
+        payment = StudentTransaction.objects.create(
+            organization=request.user.organization,
+            student_id=student_id,
+            amount=amount,
+            transaction_type='payment',
+            # qolgan kerakli maydonlarni ham yozing (comment, payment_method va h.k.)
+        )
+
+        return Response({"message": "To'lov muvaffaqiyatli qabul qilindi", "id": payment.id},
+                        status=status.HTTP_201_CREATED)
 
 # from rest_framework import viewsets
 # from rest_framework.decorators import action
