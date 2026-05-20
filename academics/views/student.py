@@ -151,23 +151,52 @@ class TalabalarMalumotView(APIView):
             })
         return Response(result, status=200)
 
-
 class StudentAddPaymentView(APIView):
     """ Talabadan to'lov qabul qilish va balansni oshirish """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, student_id):
         try:
+            # Kelayotgan summani tekshiramiz
+            amount_raw = request.data.get('amount')
+            if not amount_raw:
+                return Response({'error': "Summani kiriting"}, status=400)
+
+            amount = Decimal(str(amount_raw))
+            if amount <= 0:
+                raise InvalidOperation
+
+            # 🔥 DUBLE TO'LOVNING OLDINI OLISH (IDEMPOTENCY)
+            from django.utils import timezone
+            from datetime import timedelta
+
+            # Oxirgi 1 daqiqa (60 soniya) vaqt oralig'ini olamiz
+            bir_daqiqa_oldin = timezone.now() - timedelta(minutes=1)
+
+            # Bazada aynan shu talabaga, aynan shu summada, oxirgi 1 daqiqada to'lov yaratilganmi?
+            double_check = StudentTransaction.objects.filter(
+                student_id=student_id,
+                amount=amount,
+                transaction_type='payment',
+                organization=request.user.organization,
+                created_at__gte=bir_daqiqa_oldin  # Agar modelingizda 'created_at' bo'lsa. (Agar yo'q bo'lsa 'transaction_date__gte' qiling)
+            ).exists()
+
+            if double_check:
+                return Response({
+                    'error': "Tizim ketma-ket (dublikat) so'rovni aniqladi! Iltimos, 1 daqiqa kuting yoki tugmani qayta bosmang."
+                }, status=400)
+
+            # =================================================================
+            # ASOSIY BAZAGA YOZISH JARAYONI
+            # =================================================================
             with transaction.atomic():
                 # select_for_update() balansni parallel so'rovlarda noto'g'ri hisoblanishidan himoya qiladi
-                student = get_object_or_404(Student.objects.select_for_update(), pk=student_id,
-                                            organization=request.user.organization)
-
-                amount_raw = request.data.get('amount')
-                if not amount_raw: return Response({'error': "Summani kiriting"}, status=400)
-
-                amount = Decimal(str(amount_raw))
-                if amount <= 0: raise InvalidOperation
+                student = get_object_or_404(
+                    Student.objects.select_for_update(),
+                    pk=student_id,
+                    organization=request.user.organization
+                )
 
                 # Tranzaksiyani yaratish
                 txn = StudentTransaction.objects.create(
@@ -182,7 +211,8 @@ class StudentAddPaymentView(APIView):
 
                 # Balansni yangilash
                 balance_obj, _ = StudentBalances.objects.get_or_create(
-                    student=student, defaults={'balance': Decimal('0'), 'organization': request.user.organization}
+                    student=student,
+                    defaults={'balance': Decimal('0'), 'organization': request.user.organization}
                 )
                 old_balance = balance_obj.balance
                 balance_obj.balance = old_balance + amount
@@ -197,10 +227,10 @@ class StudentAddPaymentView(APIView):
                 {'success': True, 'new_balance': str(balance_obj.balance), 'message': "To'lov qabul qilindi."},
                 status=201)
 
+        except InvalidOperation:
+            return Response({'error': "Noto'g'ri summa kiritildi"}, status=400)
         except Exception as e:
             return Response({'error': str(e)}, status=400)
-
-
 class StudentLeaveFreezeView(APIView):
     """ Talabani guruhdan chiqarish yoki muzlatish """
     permission_classes = [IsAuthenticated]
