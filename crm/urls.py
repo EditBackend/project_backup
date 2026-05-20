@@ -11,6 +11,7 @@ urlpatterns = [
         'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
     }), name='crm-pipeline-detail'),
 
+
     # ====================== SOURCES ======================
     path('crm/sources/', CRMSourceViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-source-list'),
     path('crm/sources/<int:pk>/', CRMSourceViewSet.as_view({

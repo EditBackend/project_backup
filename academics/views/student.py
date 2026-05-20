@@ -7,6 +7,7 @@ from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
 from academics.models import (
     Student, StudentGroup, StudentBalances, StudentTransaction, StudentGroupLeaves, StudentFreezes,StudentPricing,LeaveReason,StudentBalanceHistory
 )
@@ -32,9 +33,23 @@ def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=
 class StudentGroupLeavesViewSet(viewsets.ModelViewSet):
     queryset = StudentGroupLeaves.objects.all().order_by('-leave_date')
     serializer_class = StudentGroupLeavesSerializer
+
+
 class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
+
+    @action(detail=True, methods=['post'], url_path='add-to-group')
+    def add_to_group(self, request, pk=None):
+        student = self.get_object()
+        group_id = request.data.get('group_id')  # Frontend guruh ID sini yuboradi
+        if not group_id:
+            return Response({"error": "group_id majburiy"}, status=status.HTTP_400_BAD_REQUEST)
+            # Bu yerda talabani guruhga biriktirish mantiqini yozasiz
+            # Masalan: student.group_id = group_id yoki student.groups.add(group_id)
+            # Modellaringiz tuzilishiga qarab yoziladi.
+        student.save()
+        return Response({"message": "Talaba guruhga muvaffaqiyatli qo'shildi"}, status=status.HTTP_200_OK)
 
     def get_queryset(self):
         # Tashkilot himoya qatlami

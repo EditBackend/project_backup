@@ -84,6 +84,10 @@ urlpatterns = [
     # ----------------- MOLIYAVIY HISOBOT (Reports) -----------------
     # Kassa hisoboti (Tushum, Chiqim, Sof foyda)
     path('report/', FinancialReportAPIView.as_view(), name='financial-report'),
+
+    # Agar sizda talabalar to'lovi alohida view bo'lsa o'shani ulang.
+    # Agar hozircha yo'q bo'lsa, xatolik bermasligi uchun views.py dagi FinancialReportAPIView ga vaqtincha bog'lab turing yoki xuddi boshqalaridek ulab qo'ying:
+    path('payments/', ExpenseViewSet.as_view({'get': 'list'}), name='payments-temporary'),
 ]
 
 

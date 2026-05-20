@@ -21,8 +21,13 @@ class TariffPlan(models.Model):
     def __str__(self):
         limit = self.max_students if self.max_students else "Cheksiz"
         return f"{self.name} ({limit} o'quvchi) - {self.price_per_month} so'm"
+class Holiday(BaseModel):  # models.Model o'rniga loyihadagi BaseModel'ni ishlating
+    organization = models.ForeignKey('Organizations', on_delete=models.CASCADE, related_name='holidays')
+    name = models.CharField(max_length=200)
+    date = models.DateField()
 
-
+    def __str__(self):
+        return f"{self.name} - {self.date}"
 # ════════════════════════════════════════════════════════════════
 #  TASHKILOT
 # ════════════════════════════════════════════════════════════════

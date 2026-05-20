@@ -18,6 +18,7 @@ class CourseMinimalSerializer(serializers.ModelSerializer):
         model = Course
         fields = ['id', 'name', 'monthly_price']
 
+
 class GroupTeacherSerializer(serializers.ModelSerializer):
     teacher_name = serializers.CharField(source='teacher.user.full_name', read_only=True)
     group_name = serializers.CharField(source='group.name', read_only=True)

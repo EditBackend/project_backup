@@ -49,11 +49,6 @@ urlpatterns = [
         'delete': 'destroy'
     }), name='course-detail'),
 
-
-
-
-
-
 # lesson
     path('lesson-schedules/', LessonScheduleViewSet.as_view({
         'get': 'list',
