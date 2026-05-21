@@ -18,7 +18,7 @@ urlpatterns = [
     path('students/<uuid:pk>/add-to-group/', StudentViewSet.as_view({'post': 'add_to_group'}), name='student-add-to-group'),
     # Talabaning balans holatini olish uchun path
     path('students/<uuid:pk>/balance-status/', StudentBalanceViewSet.as_view({'get': 'retrieve'}), name='student-balance-status'),
-#davomatni guruh IDsi orqali tahrirlash va o'chirish linki
+    #davomatni guruh IDsi orqali tahrirlash va o'chirish linki
     # Davomat APIView manzili (GET, POST, PATCH, DELETE so'rovlarini o'zi boshqaradi)
     path(
         'attendences/group/<uuid:group_id>/',  # Agar guruh ID raqam bo'lsa <int:group_id> qiling

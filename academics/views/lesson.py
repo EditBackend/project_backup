@@ -129,7 +129,7 @@ class GroupAttendanceView(APIView):
         attendance, created = Attendance.objects.update_or_create(
             student_group=student_group,
             lesson_date=lesson_date,
-            defaults={'is_present': is_present, 'marked_by': request.user}
+            defaults={'is_present': is_present, 'created_by': request.user}  # ✅ 'marked_by' o'rniga 'created_by'
         )
 
         deducted_amount = 0
@@ -195,9 +195,9 @@ class GroupAttendanceView(APIView):
             Attendance.objects.update_or_create(
                 student_group=student_group,
                 lesson_date=lesson_date,
-                defaults={'is_present': new_is_present, 'marked_by': request.user}
+                defaults={'is_present': new_is_present, 'created_by': request.user}
+                # ✅ 'marked_by' o'rniga 'created_by'
             )
-
             # MANTIQ 1: Oldin Kelmagan (False/None) edi, endi Keldi (True) qilindi -> Pul yechamiz
             if not old_is_present and new_is_present:
                 balance_obj.balance -= one_lesson_price
@@ -267,6 +267,8 @@ class GroupAttendanceView(APIView):
                    old_data={"group": group.name, "date": str(lesson_date), "action": "Davomat o'chirildi"})
 
         return Response({'success': True, 'message': "Davomat o'chirildi va pullar talabalarga qaytarildi"})
+
+
 # 3. IMTIHONLAR
 class ExamsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
