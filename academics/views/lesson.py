@@ -150,10 +150,13 @@ class GroupAttendanceView(APIView):
                 balance_obj.balance -= one_lesson_price
                 balance_obj.save()
                 deducted_amount = float(one_lesson_price)
-
+                # Tarixga yozish qismiga organization qo'shildi:
                 StudentBalanceHistory.objects.create(
-                    student=student, amount=-one_lesson_price,
-                    base_price=course.monthly_price, applied_price=one_lesson_price
+                    student=student,
+                    amount=-one_lesson_price,
+                    base_price=course.monthly_price,
+                    applied_price=one_lesson_price,
+                    organization=request.user.organization  # ✅ BU QATOR QO'SHILDI
                 )
 
         # self.request o'rniga request o'zi uzatildi:
@@ -216,13 +219,16 @@ class GroupAttendanceView(APIView):
             elif old_is_present and not new_is_present:
                 balance_obj.balance += one_lesson_price
                 balance_obj.save()
-                StudentBalanceHistory.objects.create(
-                    student=student, amount=one_lesson_price,
-                    base_price=course.monthly_price, applied_price=one_lesson_price,
-                    comment="Davomat xatosi tuzatilgani sababli pul qaytarildi"
-                )
 
-        # self.request o'rniga request o'zi uzatildi:
+                StudentBalanceHistory.objects.create(
+                    student=student,
+                    amount=one_lesson_price,
+                    base_price=course.monthly_price,
+                    applied_price=one_lesson_price,
+                    comment="Davomat xatosi tuzatilgani sababli pul qaytarildi",
+                    organization=request.user.organization  # ✅ BU QATOR QO'SHILDI
+                )
+                # self.request o'rniga request o'zi uzatildi:
         _log_audit(request, AuditEntityType.OTHER, group.id, AuditAction.UPDATE,
                    new_data={"group": group.name, "date": str(lesson_date), "action": "Davomat tahrirlandi"})
 
@@ -260,9 +266,12 @@ class GroupAttendanceView(APIView):
                     balance_obj.balance += one_lesson_price
                     balance_obj.save()
                     StudentBalanceHistory.objects.create(
-                        student=student, amount=one_lesson_price,
-                        base_price=course.monthly_price, applied_price=one_lesson_price,
-                        comment="Davomat o'chirilgani sababli pul qaytarildi"
+                        student=student,
+                        amount=one_lesson_price,
+                        base_price=course.monthly_price,
+                        applied_price=one_lesson_price,
+                        comment="Davomat o'chirilgani sababli pul qaytarildi",
+                        organization=request.user.organization  # ✅ BU QATOR QO'SHILDI
                     )
 
         attendances.delete()
