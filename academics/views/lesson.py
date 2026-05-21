@@ -159,9 +159,9 @@ class GroupAttendanceView(APIView):
         return Response({'success': True, 'message': "Davomat saqlandi", 'deducted': deducted_amount}, status=201)
 
 
-# ==========================================
+
 # 3. IMTIHONLAR
-# ==========================================
+
 class ExamsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ExamSerializer
@@ -175,54 +175,44 @@ class ExamsViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         # 1. Employee ni olamiz
         employee = getattr(self.request.user, 'employee', None)
-
         # 2. Tekshiramiz: Agar employee bo'lmasa, 'AttributeError' chiqishiga yo'l qo'ymaymiz
         if employee is None:
             from rest_framework.exceptions import ValidationError
             raise ValidationError({"detail": "Siz tizimda xodim sifatida ro'yxatdan o'tmagansiz!"})
-
         # 3. Faqat employee borligiga ishonganimizdan keyin organization ni olamiz
         serializer.save(
             organization=employee.organization,
             created_by=employee
         )
-
         _log_audit(self.request, AuditEntityType.OTHER, exam.id, AuditAction.CREATE, new_data={"title": exam.title})
 
 
 class ExamGradingView(APIView):
     """ Imtihon baholarini kiritish (unique_together qoidasi bilan) """
     permission_classes = [IsAuthenticated]
-
     def post(self, request):
         exam_id = request.data.get('exam')
         student_id = request.data.get('student')
         score = request.data.get('score')
-
         exam = get_object_or_404(Exams, pk=exam_id, organization=request.user.organization)
-
         # Bahoni yaratish yoki yangilash
         result, created = ExamResults.objects.update_or_create(
             exam=exam, student_id=student_id,
             defaults={'score': score, 'comment': request.data.get('comment', '')}
         )
-
         _log_audit(self.request, AuditEntityType.OTHER, result.id, AuditAction.UPDATE if not created else AuditAction.CREATE,
                    new_data={"student": str(student_id), "score": str(score)})
-
         return Response({'success': True, 'message': 'Baho saqlandi', 'score': result.score}, status=200)
 
 
-# ==========================================
+
 # 4. ONLAYN DARSLAR
-# ==========================================
 class OnlineLessonViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = OnlineLessonSerializer
 
     def get_queryset(self):
         return OnlineLesson.objects.filter(organization=self.request.user.organization).order_by('order')
-
     def perform_create(self, serializer):
         lesson = serializer.save(
             organization=self.request.user.organization,
@@ -239,3 +229,6 @@ class PublishLessonView(APIView):
         lesson.save()
         _log_audit(self.request, AuditEntityType.OTHER, lesson.id, AuditAction.UPDATE, new_data={"is_published": True})
         return Response({'success': True, 'message': "Dars o'quvchilarga ko'rinadigan bo'ldi!"})
+
+
+
