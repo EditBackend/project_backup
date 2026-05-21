@@ -19,13 +19,11 @@ urlpatterns = [
     # Talabaning balans holatini olish uchun path
     path('students/<uuid:pk>/balance-status/', StudentBalanceViewSet.as_view({'get': 'retrieve'}), name='student-balance-status'),
 #davomatni guruh IDsi orqali tahrirlash va o'chirish linki
+    # Davomat APIView manzili (GET, POST, PATCH, DELETE so'rovlarini o'zi boshqaradi)
     path(
-        'attendences/group/<uuid:pk>/', # Agar guruh ID raqam bo'lsa <int:pk> qiling
-        GroupViewSet.as_view({
-            'patch': 'manage_group_attendance',
-            'delete': 'manage_group_attendance'
-        }),
-        name='group-attendance-legacy-bridge'
+        'attendences/group/<uuid:group_id>/',  # Agar guruh ID raqam bo'lsa <int:group_id> qiling
+        GroupAttendanceView.as_view(),
+        name='group-attendance-api'
     ),
     path('student-group-leaves/', StudentGroupLeavesViewSet.as_view({'get': 'list'})),
     path('student-group-leaves/<uuid:pk>/', StudentGroupLeavesViewSet.as_view({'get': 'retrieve'})),
