@@ -126,12 +126,16 @@ class GroupAttendanceView(APIView):
 
         student_group = get_object_or_404(StudentGroup, pk=student_group_id, group=group)
 
+        # 'defaults' ichiga organization ham qo'shildi:
         attendance, created = Attendance.objects.update_or_create(
             student_group=student_group,
             lesson_date=lesson_date,
-            defaults={'is_present': is_present, 'created_by': request.user}  # ✅ 'marked_by' o'rniga 'created_by'
+            defaults={
+                'is_present': is_present,
+                'organization': request.user.organization,  # ✅ BU QATOR QO'SHILDI
+                'created_by': request.user
+            }
         )
-
         deducted_amount = 0
         if is_present and created:
             student = student_group.student
@@ -163,66 +167,51 @@ class GroupAttendanceView(APIView):
     # 3. YANGI: DAVOMATNI TAHRIRLASH (PATCH)
     # ==========================================
     @transaction.atomic
-    def patch(self, request, group_id):
-        """ Frontenddan [{student_group_id: UUID, is_present: bool}] ko'rinishida keladi """
+    def post(self, request, group_id):
         group = get_object_or_404(Group, pk=group_id, organization=request.user.organization)
+        student_group_id = request.data.get('student_group')
+        is_present = request.data.get('is_present', False)
         lesson_date = request.data.get('lesson_date', date.today())
-        students_data = request.data.get('students', [])
 
-        if not students_data:
-            return Response({"error": "Talabalar davomat ro'yxati (students) yuborilmadi!"}, status=400)
+        student_group = get_object_or_404(StudentGroup, pk=student_group_id, group=group)
 
-        course = group.course
-        one_lesson_price = Decimal('0')
-        if course:
-            lessons_count = Decimal(course.lessons_per_month) if course.lessons_per_month else Decimal(12)
-            one_lesson_price = Decimal(course.monthly_price) / lessons_count
+        # To'g'ri update_or_create qismi:
+        attendance, created = Attendance.objects.update_or_create(
+            student_group=student_group,
+            lesson_date=lesson_date,
+            defaults={
+                'is_present': is_present,
+                'organization': request.user.organization,
+                'created_by': request.user
+            }
+        )
 
-        for item in students_data:
-            sg_id = item.get('student_group_id')
-            new_is_present = item.get('is_present', False)
-
-            student_group = get_object_or_404(StudentGroup, pk=sg_id, group=group)
+        deducted_amount = 0
+        if is_present and created:
             student = student_group.student
-            balance_obj, _ = StudentBalances.objects.get_or_create(student=student, defaults={'balance': Decimal('0')})
+            course = group.course
+            if course:
+                lessons_count = Decimal(course.lessons_per_month) if course.lessons_per_month else Decimal(12)
+                one_lesson_price = Decimal(course.monthly_price) / lessons_count
 
-            # Eski davomat holatini tekshiramiz (Pulni to'g'ri qaytarish yoki yechish uchun)
-            old_attendance = Attendance.objects.filter(student_group=student_group, lesson_date=lesson_date).first()
-
-            old_is_present = old_attendance.is_present if old_attendance else None
-
-            # Davomat holatini yangilaymiz
-            Attendance.objects.update_or_create(
-                student_group=student_group,
-                lesson_date=lesson_date,
-                defaults={'is_present': new_is_present, 'created_by': request.user}
-                # ✅ 'marked_by' o'rniga 'created_by'
-            )
-            # MANTIQ 1: Oldin Kelmagan (False/None) edi, endi Keldi (True) qilindi -> Pul yechamiz
-            if not old_is_present and new_is_present:
+                balance_obj, _ = StudentBalances.objects.get_or_create(student=student,
+                                                                       defaults={'balance': Decimal('0')})
                 balance_obj.balance -= one_lesson_price
                 balance_obj.save()
+                deducted_amount = float(one_lesson_price)
+
                 StudentBalanceHistory.objects.create(
                     student=student, amount=-one_lesson_price,
-                    base_price=course.monthly_price, applied_price=one_lesson_price,
-                    comment="Davomat tahrirlangani sababli pul yechildi"
+                    base_price=course.monthly_price, applied_price=one_lesson_price
                 )
 
-            # MANTIQ 2: Oldin Kelgan (True) edi, endi Kelmadi (False) qilindi -> Pulini qaytaramiz (Kompenzatsiya)
-            elif old_is_present and not new_is_present:
-                balance_obj.balance += one_lesson_price
-                balance_obj.save()
-                StudentBalanceHistory.objects.create(
-                    student=student, amount=one_lesson_price,
-                    base_price=course.monthly_price, applied_price=one_lesson_price,
-                    comment="Davomat xatosi tuzatilgani sababli pul qaytarildi"
-                )
+        _log_audit(self.request, AuditEntityType.OTHER, attendance.id, AuditAction.CREATE, new_data={
+            "student_id": str(student_group.student.id),
+            "is_present": is_present,
+            "deducted_amount": deducted_amount
+        })
 
-        _log_audit(request, AuditEntityType.OTHER, group.id, AuditAction.UPDATE,
-                   new_data={"group": group.name, "date": str(lesson_date), "action": "Davomat tahrirlandi"})
-
-        return Response({'success': True, 'message': "Davomat muvaffaqiyatli yangilandi"})
-
+        return Response({'success': True, 'message': "Davomat saqlandi", 'deducted': deducted_amount}, status=201)
     # ==========================================
     # 4. YANGI: DAVOMATNI O'CHIRISH (DELETE)
     # ==========================================
