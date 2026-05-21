@@ -97,11 +97,11 @@ class GroupAttendanceView(APIView):
     # 1. DAVOMAT RO'YXATINI OLISH (GET)
     # ==========================================
     def get(self, request, group_id):
+        # organization to'g'ridan-to'g'ri request.user dan olindi
         group = get_object_or_404(Group, pk=group_id, organization=request.user.organization)
         lesson_date = request.GET.get('date', date.today().isoformat())
 
         student_groups = StudentGroup.objects.filter(group=group, left_at__isnull=True)
-        # Senda Attendance modelida maydon nomi 'lesson_date' ekan
         attendances = Attendance.objects.filter(student_group__in=student_groups, lesson_date=lesson_date)
 
         data = []
@@ -119,6 +119,7 @@ class GroupAttendanceView(APIView):
     # ==========================================
     @transaction.atomic
     def post(self, request, group_id):
+        # organization to'g'ridan-to'g'ri request.user dan olindi
         group = get_object_or_404(Group, pk=group_id, organization=request.user.organization)
         student_group_id = request.data.get('student_group')
         is_present = request.data.get('is_present', False)
@@ -126,16 +127,16 @@ class GroupAttendanceView(APIView):
 
         student_group = get_object_or_404(StudentGroup, pk=student_group_id, group=group)
 
-        # 'defaults' ichiga organization ham qo'shildi:
         attendance, created = Attendance.objects.update_or_create(
             student_group=student_group,
             lesson_date=lesson_date,
             defaults={
                 'is_present': is_present,
-                'organization': request.user.organization,  # ✅ BU QATOR QO'SHILDI
+                'organization': request.user.organization,  # ✅ To'g'ri biriktirildi
                 'created_by': request.user
             }
         )
+
         deducted_amount = 0
         if is_present and created:
             student = student_group.student
@@ -155,7 +156,8 @@ class GroupAttendanceView(APIView):
                     base_price=course.monthly_price, applied_price=one_lesson_price
                 )
 
-        _log_audit(self.request, AuditEntityType.OTHER, attendance.id, AuditAction.CREATE, new_data={
+        # self.request o'rniga request o'zi uzatildi:
+        _log_audit(request, AuditEntityType.OTHER, attendance.id, AuditAction.CREATE, new_data={
             "student_id": str(student_group.student.id),
             "is_present": is_present,
             "deducted_amount": deducted_amount
@@ -164,64 +166,79 @@ class GroupAttendanceView(APIView):
         return Response({'success': True, 'message': "Davomat saqlandi", 'deducted': deducted_amount}, status=201)
 
     # ==========================================
-    # 3. YANGI: DAVOMATNI TAHRIRLASH (PATCH)
+    # 3. DAVOMATNI TAHRIRLASH (PATCH)
     # ==========================================
     @transaction.atomic
-    def post(self, request, group_id):
+    def patch(self, request, group_id):
+        # organization to'g'ridan-to'g'ri request.user dan olindi
         group = get_object_or_404(Group, pk=group_id, organization=request.user.organization)
-        student_group_id = request.data.get('student_group')
-        is_present = request.data.get('is_present', False)
         lesson_date = request.data.get('lesson_date', date.today())
+        students_data = request.data.get('students', [])
 
-        student_group = get_object_or_404(StudentGroup, pk=student_group_id, group=group)
+        if not students_data:
+            return Response({"error": "Talabalar davomat ro'yxati (students) yuborilmadi!"}, status=400)
 
-        # To'g'ri update_or_create qismi:
-        attendance, created = Attendance.objects.update_or_create(
-            student_group=student_group,
-            lesson_date=lesson_date,
-            defaults={
-                'is_present': is_present,
-                'organization': request.user.organization,
-                'created_by': request.user
-            }
-        )
+        course = group.course
+        one_lesson_price = Decimal('0')
+        if course:
+            lessons_count = Decimal(course.lessons_per_month) if course.lessons_per_month else Decimal(12)
+            one_lesson_price = Decimal(course.monthly_price) / lessons_count
 
-        deducted_amount = 0
-        if is_present and created:
+        for item in students_data:
+            sg_id = item.get('student_group_id')
+            new_is_present = item.get('is_present', False)
+
+            student_group = get_object_or_404(StudentGroup, pk=sg_id, group=group)
             student = student_group.student
-            course = group.course
-            if course:
-                lessons_count = Decimal(course.lessons_per_month) if course.lessons_per_month else Decimal(12)
-                one_lesson_price = Decimal(course.monthly_price) / lessons_count
+            balance_obj, _ = StudentBalances.objects.get_or_create(student=student, defaults={'balance': Decimal('0')})
 
-                balance_obj, _ = StudentBalances.objects.get_or_create(student=student,
-                                                                       defaults={'balance': Decimal('0')})
+            old_attendance = Attendance.objects.filter(student_group=student_group, lesson_date=lesson_date).first()
+            old_is_present = old_attendance.is_present if old_attendance else None
+
+            Attendance.objects.update_or_create(
+                student_group=student_group,
+                lesson_date=lesson_date,
+                defaults={
+                    'is_present': new_is_present,
+                    'organization': request.user.organization,  # ✅ To'g'ri biriktirildi
+                    'created_by': request.user
+                }
+            )
+
+            if not old_is_present and new_is_present:
                 balance_obj.balance -= one_lesson_price
                 balance_obj.save()
-                deducted_amount = float(one_lesson_price)
-
                 StudentBalanceHistory.objects.create(
                     student=student, amount=-one_lesson_price,
-                    base_price=course.monthly_price, applied_price=one_lesson_price
+                    base_price=course.monthly_price, applied_price=one_lesson_price,
+                    comment="Davomat tahrirlangani sababli pul yechildi"
+                )
+            elif old_is_present and not new_is_present:
+                balance_obj.balance += one_lesson_price
+                balance_obj.save()
+                StudentBalanceHistory.objects.create(
+                    student=student, amount=one_lesson_price,
+                    base_price=course.monthly_price, applied_price=one_lesson_price,
+                    comment="Davomat xatosi tuzatilgani sababli pul qaytarildi"
                 )
 
-        _log_audit(self.request, AuditEntityType.OTHER, attendance.id, AuditAction.CREATE, new_data={
-            "student_id": str(student_group.student.id),
-            "is_present": is_present,
-            "deducted_amount": deducted_amount
-        })
+        # self.request o'rniga request o'zi uzatildi:
+        _log_audit(request, AuditEntityType.OTHER, group.id, AuditAction.UPDATE,
+                   new_data={"group": group.name, "date": str(lesson_date), "action": "Davomat tahrirlandi"})
 
-        return Response({'success': True, 'message': "Davomat saqlandi", 'deducted': deducted_amount}, status=201)
+        return Response({'success': True, 'message': "Davomat muvaffaqiyatli yangilandi"})
+
     # ==========================================
-    # 4. YANGI: DAVOMATNI O'CHIRISH (DELETE)
+    # 4. DAVOMATNI O'CHIRISH (DELETE)
     # ==========================================
     @transaction.atomic
     def delete(self, request, group_id):
+        # organization to'g'ridan-to'g'ri request.user dan olindi
         group = get_object_or_404(Group, pk=group_id, organization=request.user.organization)
         lesson_date = request.query_params.get('date') or request.data.get('date')
 
         if not lesson_date:
-            return Response({"error": "Sana (date) parametri yuborilmadi! Masalan: ?date=2026-05-20"}, status=400)
+            return Response({"error": "Sana (date) parametri yuborilmadi!"}, status=400)
 
         student_groups = StudentGroup.objects.filter(group=group)
         attendances = Attendance.objects.filter(student_group__in=student_groups, lesson_date=lesson_date)
@@ -235,7 +252,6 @@ class GroupAttendanceView(APIView):
             lessons_count = Decimal(course.lessons_per_month) if course.lessons_per_month else Decimal(12)
             one_lesson_price = Decimal(course.monthly_price) / lessons_count
 
-        # Davomat o'chirilganda, "Keldi" deb belgilangan talabalarning pullarini qaytarish shart!
         for att in attendances:
             if att.is_present:
                 student = att.student_group.student
@@ -249,15 +265,13 @@ class GroupAttendanceView(APIView):
                         comment="Davomat o'chirilgani sababli pul qaytarildi"
                     )
 
-        # Davomat yozuvlarini bazadan o'chiramiz
         attendances.delete()
 
+        # self.request o'rniga request o'zi uzatildi:
         _log_audit(request, AuditEntityType.OTHER, group.id, AuditAction.DELETE,
                    old_data={"group": group.name, "date": str(lesson_date), "action": "Davomat o'chirildi"})
 
         return Response({'success': True, 'message': "Davomat o'chirildi va pullar talabalarga qaytarildi"})
-
-
 # 3. IMTIHONLAR
 class ExamsViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
