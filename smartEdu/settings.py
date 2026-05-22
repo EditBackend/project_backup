@@ -12,6 +12,8 @@ https://docs.djangoproject.com/en/4.2/ref/settings/
 
 from pathlib import Path
 from datetime import timedelta
+import dj_database_url
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -104,11 +106,17 @@ WSGI_APPLICATION = 'smartEdu.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+
+
 DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+    'default': dj_database_url.config(
+        # Agar tizimda DATABASE_URL bo'lsa uni oladi (Render'da),
+        # bo'lmasa pastdagi Neon kodiga kompyuteringizdan ulanadi.
+        default=os.environ.get(
+            'DATABASE_URL',
+            'postgresql://neondb_owner:npg_7wSn3oJplGrv@ep-fragrant-union-ap6vq0l9-pooler.c-7.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require'
+        )
+    )
 }
 
 
