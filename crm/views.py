@@ -1,6 +1,8 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
+# 'Pipeline' o'rniga 'CRMPipeline' deb import qilamiz:
+from crm.models import CRMPipeline
 from .models import (
     CRMPipeline, CRMSource, CRMLostReason,
     CRMLead, CRMActivity, CRMLeadsHistory, CRMLeadLost,CrmSection
@@ -60,19 +62,14 @@ class PipelineViewSet(viewsets.ModelViewSet):
         user = self.request.user
         org = getattr(user, 'organization', None)
 
-        # Agar foydalanuvchi superuser bo'lsa, hamma narsani ko'rsin (404 bermasligi uchun)
         if user.is_superuser:
-            return Pipeline.objects.all()
+            return CRMPipeline.objects.all()  # 👈 SHU YER
 
-        # 🔥 ASOSIY HIMOYA VARIANTI:
-        # Bazada eski yoki noto'g'ri yaratilgan, organization maydoni NULL bo'lgan
-        # ob'ektlar ham frontendda 404 bermasligi uchun Q operatori orqali ikkala holatni ham olamiz:
         from django.db.models import Q
 
-        return Pipeline.objects.filter(
+        return CRMPipeline.objects.filter(  # 👈 SHU YER
             Q(organization=org) | Q(organization__isnull=True)
-        ).order_by('-created_at')  # o'zingizdagi tartiblash maydoni
-
+        ).order_by('-created_at')
     # ==========================================
     # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
     # ==========================================
