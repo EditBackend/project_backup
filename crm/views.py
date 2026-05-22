@@ -48,11 +48,50 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
 
 
 # Lug'atlar (Faqat o'z tashkilotidagilarni ko'radi va yaratadi)
-class CRMPipelineViewSet(BaseCRMViewSet):
-    queryset = CRMPipeline.objects.all()
-    serializer_class = CRMPipelineSerializer
+class PipelineViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
 
+    # ... boshqa serializer_class va konfiguratsiyalar ...
 
+    # ==========================================
+    # 1. GET_QUERYSET QISMINI TO'G'RILASH
+    # ==========================================
+    def get_queryset(self):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        # Agar foydalanuvchi superuser bo'lsa, hamma narsani ko'rsin (404 bermasligi uchun)
+        if user.is_superuser:
+            return Pipeline.objects.all()
+
+        # 🔥 ASOSIY HIMOYA VARIANTI:
+        # Bazada eski yoki noto'g'ri yaratilgan, organization maydoni NULL bo'lgan
+        # ob'ektlar ham frontendda 404 bermasligi uchun Q operatori orqali ikkala holatni ham olamiz:
+        from django.db.models import Q
+
+        return Pipeline.objects.filter(
+            Q(organization=org) | Q(organization__isnull=True)
+        ).order_by('-created_at')  # o'zingizdagi tartiblash maydoni
+
+    # ==========================================
+    # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
+    # ==========================================
+    def perform_destroy(self, instance):
+        # O'chirishdan oldin eski ma'lumotlarni Audit log uchun saqlab qolamiz (agar kerak bo'lsa)
+        # _log_audit(self.request, AuditEntityType.CRM, instance.id, AuditAction.DELETE, ...)
+
+        # Ob'ektni o'chiramiz
+        instance.delete()
+
+    # ==========================================
+    # 3. BONUS: YARATILAYOTGANDA ORG_ID CHALUP BO'LMASLIGI UCHUN (POST)
+    # ==========================================
+    def perform_create(self, serializer):
+        # Yangi pipeline yaratilayotganda organization NULL bo'lib qolmasligini ta'minlaymiz
+        serializer.save(
+            organization=self.request.user.organization,
+            created_by=self.request.user
+        )
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
