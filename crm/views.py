@@ -49,20 +49,25 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
         )
 
 
-# Lug'atlar (Faqat o'z tashkilotidagilarni ko'radi va yaratadi)
-class PipelineViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-
-    # 👇 MANA SHU QATOR TUSHIB QOLGAN. O'zingizdagi serializer nomini yozing:
-    serializer_class = CRMPipelineSerializer  # (yoki PipelineSerializer)
+# =========================================================================
+# LUG'ATLAR (PipelineViewSet ENDI BaseCRMViewSet'DAN MEROS OLADI)
+# =========================================================================
+class PipelineViewSet(BaseCRMViewSet):
+    """
+    Pipeline boshqaruvi. BaseCRMViewSet'dan meros olgani uchun
+    tashkilot bo'yicha filter va POST qilishda avtomat saqlash o'zi ishlaydi!
+    """
+    serializer_class = CRMPipelineSerializer
 
     def get_queryset(self):
         user = self.request.user
         org = getattr(user, 'organization', None)
 
+        # Superuser hamma narsani ko'raversin
         if user.is_superuser:
             return CRMPipeline.objects.all()
 
+        # Eski null bo'lib qolgan pipelines 404 bermasligi uchun filter:
         from django.db.models import Q
         return CRMPipeline.objects.filter(
             Q(organization=org) | Q(organization__isnull=True)
