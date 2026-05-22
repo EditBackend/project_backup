@@ -71,24 +71,6 @@ class PipelineViewSet(viewsets.ModelViewSet):
     def perform_destroy(self, instance):
         instance.delete()
 
-    def perform_create(self, serializer):
-        serializer.save(
-            organization=self.request.user.organization,
-            created_by=self.request.user
-        )
-    # ==========================================
-    # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
-    # ==========================================
-    def perform_destroy(self, instance):
-        # O'chirishdan oldin eski ma'lumotlarni Audit log uchun saqlab qolamiz (agar kerak bo'lsa)
-        # _log_audit(self.request, AuditEntityType.CRM, instance.id, AuditAction.DELETE, ...)
-
-        # Ob'ektni o'chiramiz
-        instance.delete()
-
-    # ==========================================
-    # 3. BONUS: YARATILAYOTGANDA ORG_ID CHALUP BO'LMASLIGI UCHUN (POST)
-    # ==========================================
         # perform_create o'rniga aynan mana shu create metodini qo'ying:
         def create(self, request, *args, **kwargs):
             serializer = self.get_serializer(data=request.data)
@@ -105,6 +87,25 @@ class PipelineViewSet(viewsets.ModelViewSet):
 
             headers = self.get_success_headers(serializer.data)
             return Response(serializer.data, status=200, headers=headers)
+    # ==========================================
+    # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
+    # ==========================================
+    def perform_destroy(self, instance):
+        # O'chirishdan oldin eski ma'lumotlarni Audit log uchun saqlab qolamiz (agar kerak bo'lsa)
+        # _log_audit(self.request, AuditEntityType.CRM, instance.id, AuditAction.DELETE, ...)
+
+        # Ob'ektni o'chiramiz
+        instance.delete()
+
+    # ==========================================
+    # 3. BONUS: YARATILAYOTGANDA ORG_ID CHALUP BO'LMASLIGI UCHUN (POST)
+    # ==========================================
+    def perform_create(self, serializer):
+        # Yangi pipeline yaratilayotganda organization NULL bo'lib qolmasligini ta'minlaymiz
+        serializer.save(
+            organization=self.request.user.organization,
+            created_by=self.request.user
+        )
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
