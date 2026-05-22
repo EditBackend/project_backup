@@ -53,23 +53,29 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
 class PipelineViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
-    # ... boshqa serializer_class va konfiguratsiyalar ...
+    # 👇 MANA SHU QATOR TUSHIB QOLGAN. O'zingizdagi serializer nomini yozing:
+    serializer_class = CRMPipelineSerializer  # (yoki PipelineSerializer)
 
-    # ==========================================
-    # 1. GET_QUERYSET QISMINI TO'G'RILASH
-    # ==========================================
     def get_queryset(self):
         user = self.request.user
         org = getattr(user, 'organization', None)
 
         if user.is_superuser:
-            return CRMPipeline.objects.all()  # 👈 SHU YER
+            return CRMPipeline.objects.all()
 
         from django.db.models import Q
-
-        return CRMPipeline.objects.filter(  # 👈 SHU YER
+        return CRMPipeline.objects.filter(
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
+
+    def perform_destroy(self, instance):
+        instance.delete()
+
+    def perform_create(self, serializer):
+        serializer.save(
+            organization=self.request.user.organization,
+            created_by=self.request.user
+        )
     # ==========================================
     # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
     # ==========================================
