@@ -69,12 +69,14 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
 CORS_ALLOW_ALL_ORIGINS = True
 ROOT_URLCONF = 'smartEdu.urls'
 AUTH_USER_MODEL = "accounts.User"
 CSRF_TRUSTED_ORIGINS = [
     'https://project-backup.onrender.com',
 ]
+
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 CORS_ALLOW_ALL_ORIGINS = True
 CSRF_TRUSTED_ORIGINS = [
@@ -155,8 +157,8 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
 
 STATIC_URL = '/static/'
-
 STATICFILES_DIRS = []
+
 
 # Tuple emas, stringga aylantiramiz
 STATIC_ROOT = BASE_DIR / 'staticfiles'
@@ -165,6 +167,7 @@ STATICFILES_FINDERS = [
     "django.contrib.staticfiles.finders.FileSystemFinder",
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
 ]
+
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 # Default primary key field type
@@ -212,3 +215,5 @@ SPECTACULAR_SETTINGS = {
     },
 
 }
+
+
