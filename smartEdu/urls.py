@@ -6,6 +6,7 @@ from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
 from .views import github_webhook
+
 # Spectacular (Swagger)
 from drf_spectacular.views import (
     SpectacularAPIView,
@@ -18,14 +19,30 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
-# Swagger uchun ruxsat
+# Swagger va Token uchun ruxsat
 from rest_framework.permissions import AllowAny
 
 
 urlpatterns = [
-    # Token olish
-    path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    # ====================== TOKEN OLISH (RUHSAT OCHILDI) ======================
+    path(
+        'api/token/',
+        TokenObtainPairView.as_view(
+            permission_classes=[AllowAny],     # ✅ Global xavfsizlik o'chirildi
+            authentication_classes=[]          # ✅ Token so'ramasligi ta'minlandi
+        ),
+        name='token_obtain_pair'
+    ),
+    path(
+        'api/token/refresh/',
+        TokenRefreshView.as_view(
+            permission_classes=[AllowAny],     # ✅ Global xavfsizlik o'chirildi
+            authentication_classes=[]          # ✅ Token so'ramasligi ta'minlandi
+        ),
+        name='token_refresh'
+    ),
+    # =========================================================================
+
     path('admin/', admin.site.urls),
 
     # ====================== SWAGGER / SCHEMA ======================
