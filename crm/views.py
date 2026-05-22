@@ -89,12 +89,22 @@ class PipelineViewSet(viewsets.ModelViewSet):
     # ==========================================
     # 3. BONUS: YARATILAYOTGANDA ORG_ID CHALUP BO'LMASLIGI UCHUN (POST)
     # ==========================================
-    def perform_create(self, serializer):
-        # Yangi pipeline yaratilayotganda organization NULL bo'lib qolmasligini ta'minlaymiz
-        serializer.save(
-            organization=self.request.user.organization,
-            created_by=self.request.user
-        )
+        # perform_create o'rniga aynan mana shu create metodini qo'ying:
+        def create(self, request, *args, **kwargs):
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+
+            #  Tashkilot va yaratuvchini to'g'ridan-to'g'ri request.user dan majburiy tiqamiz:
+            pipeline = serializer.save(
+                organization=request.user.organization,
+                created_by=request.user
+            )
+
+            # Agar audit log kerak bo'lsa (ixtiyoriy):
+            # _log_audit(request, AuditEntityType.CRM, pipeline.id, AuditAction.CREATE, new_data={"name": pipeline.name})
+
+            headers = self.get_success_headers(serializer.data)
+            return Response(serializer.data, status=200, headers=headers)
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
