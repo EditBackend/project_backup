@@ -14,7 +14,7 @@ urlpatterns = [
     # ====================== PIPELINES ======================
     path('crm/pipelines/', CRMPipelineViewSet.as_view({'get': 'list', 'post': 'create'}), name='crm-pipeline-list'),
 
-    # 🔥 FRONTENDCHI UUID YUBORAYOTGANI UCHUN <int:pk> NI <uuid:pk> GA ALMASHTIRDIK:
+    #  FRONTENDCHI UUID YUBORAYOTGANI UCHUN <int:pk> NI <uuid:pk> GA ALMASHTIRDIK:
     path('crm/pipelines/<uuid:pk>/', CRMPipelineViewSet.as_view({
         'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
     }), name='crm-pipeline-detail'),
@@ -55,3 +55,5 @@ urlpatterns = [
         'get': 'retrieve', 'put': 'update', 'patch': 'partial_update', 'delete': 'destroy'
     }), name='crm-lost-lead-detail'),
 ]
+
+
