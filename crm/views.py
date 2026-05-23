@@ -71,9 +71,9 @@ class PipelineViewSet(BaseCRMViewSet):
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
 
-        # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST) - IMPORTSIZ VA UNIVERSAL VARIANT
-        # ==========================================
+    # ==========================================
+    # 2. YANGI PIPELINE YARATISH (POST) - TO'LIQ QAYTARADIGAN VARIANT
+    # ==========================================
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -81,21 +81,19 @@ class PipelineViewSet(BaseCRMViewSet):
         user = request.user
         org = None
 
-        # 1. Foydalanuvchining o'zidan tashkilotni qidiramiz
+        # 1. Foydalanuvchining o'zidan qidiramiz
         if hasattr(user, 'organization') and user.organization:
             org = user.organization
         # 2. Xodim profili ichidan qidiramiz
         elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
             org = user.employee.organization
 
-        # 3. 🌟 Agar baribir topilmasa, model nomini bilmagan holda Django orqali topamiz:
+        # 3. Agar topilmasa, dinamik qidiramiz
         if not org:
             from django.apps import apps
             try:
-                # 'organizations' app'idagi barcha modellarni tekshiramiz
                 org_models = apps.get_app_config('organizations').get_models()
                 for model in org_models:
-                     # Bazada bor birinchi tashkilot ob'ektini olamiz
                     first_obj = model.objects.first()
                     if first_obj:
                         org = first_obj
@@ -103,16 +101,18 @@ class PipelineViewSet(BaseCRMViewSet):
             except Exception:
                 pass
 
-        # Pipeline saqlash
+        # 🚀 Obyektni saqlaymiz
         pipeline = serializer.save(
             organization=org,
             created_by=user
         )
 
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        #  MANA SHU YERDA: Yangi yaratilgan obyektni qayta o'qiymiz (ID va hamma narsa joyiga tushishi uchun)
+        # Va uni qayta serializerdan o'tkazib, frontendga to'liq holatda qaytaramiz
+        return_serializer = self.get_serializer(pipeline)
 
-
+        headers = self.get_success_headers(return_serializer.data)
+        return Response(return_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
     # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
         instance.delete()
