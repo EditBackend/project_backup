@@ -3,7 +3,7 @@ from django.utils import timezone
 from core.validators import validate_uz_phone
 from .models import (
     CRMPipeline, CrmSection, CRMSource, CRMLostReason,
-    CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes,CRMLeadsHistory
+    CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes, CRMLeadsHistory
 )
 from organizations.models import Branch
 from django.contrib.auth import get_user_model
@@ -11,18 +11,24 @@ from django.contrib.auth import get_user_model
 User = get_user_model()
 
 
-# ─── YARDAMCHI SERIALIZERLAR (Read-Only yoki oddiy lug'atlar uchun) ───
+# ─── YORDAMCHI SERIALIZERLAR (Tuzatilgan qismi) ───
 
 class CRMPipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMPipeline
-        fields = ['id', 'name', 'position']
+        # Frontendchi organization ID yuborishi uchun fields ichiga qo'shdik
+        fields = ['id', 'name', 'position', 'organization']
+        extra_kwargs = {
+            'organization': {'required': False, 'allow_null': True}
+        }
+
 
 class CRMLeadsHistorySerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMLeadsHistory
         fields = '__all__'
         read_only_fields = ['created_by']
+
 
 class CRMSourceSerializer(serializers.ModelSerializer):
     class Meta:
@@ -48,14 +54,10 @@ class CRMLeadSerializer(serializers.ModelSerializer):
             'source', 'pipeline', 'section', 'assigned_to', 'expected_course',
             'next_followup_date', 'branch', 'created_at'
         ]
-        # Xavfsizlik uchun bu maydonlarni foydalanuvchi API orqali yubora olmaydi
         read_only_fields = ['id', 'created_at', 'organization', 'created_by']
 
     def validate_phone_number(self, value):
-        # 1. Formatni tekshiramiz
         value = validate_uz_phone(value)
-
-        # 2. Shu tashkilot (maktab) ichida bu raqam oldin kiritilganmi?
         request = self.context.get('request')
         if request and request.method == 'POST':
             if CRMLead.objects.filter(
@@ -82,7 +84,6 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         if not org:
             raise serializers.ValidationError("Tashkilotga biriktirilmagan foydalanuvchi lid qo'sha olmaydi.")
 
-        # XAVFSIZLIK: Boshqa maktabning filialini, pipelinini yoki xodimini tanlab qo'ymasligini tekshiramiz
         branch = attrs.get('branch')
         if branch and branch.organization != org:
             raise serializers.ValidationError({"branch": "Tanlangan filial sizning tashkilotingizga tegishli emas."})
@@ -103,7 +104,7 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         return attrs
 
 
-# ─── CRM HARAKATLAR (Qo'ng'iroq, Rad etish) ───
+# ─── CRM HARAKATLAR ───
 
 class CRMActivitySerializer(serializers.ModelSerializer):
     class Meta:
@@ -116,8 +117,9 @@ class CRMActivitySerializer(serializers.ModelSerializer):
         if value.organization != request.user.organization:
             raise serializers.ValidationError("Boshqa tashkilot lidiga harakat (activity) qo'sha olmaysiz.")
         return value
+
+
 class CrmSectionSerializer(serializers.ModelSerializer):
-    # O'qish (GET) uchun qo'shimcha ma'lumotlar
     pipeline_name = serializers.ReadOnlyField(source='pipeline.name')
     course_name = serializers.ReadOnlyField(source='course.name')
     teacher_name = serializers.ReadOnlyField(source='teacher.full_name')
@@ -125,6 +127,7 @@ class CrmSectionSerializer(serializers.ModelSerializer):
     class Meta:
         model = CrmSection
         fields = "__all__"
+
 
 class CRMLeadLostSerializer(serializers.ModelSerializer):
     class Meta:
@@ -135,11 +138,9 @@ class CRMLeadLostSerializer(serializers.ModelSerializer):
         request = self.context.get('request')
         lead = attrs.get('lead')
 
-        # 1. Tashkilot daxlsizligi
         if lead.organization != request.user.organization:
             raise serializers.ValidationError({"lead": "Sizga tegishli bo'lmagan lidni rad eta olmaysiz."})
 
-        # 2. Lid allaqachon rad etilgan bo'lsa
         if CRMLeadLost.objects.filter(lead=lead).exists():
             raise serializers.ValidationError({"lead": "Bu lid allaqachon 'Rad etilgan' (Lost) holatiga o'tkazilgan."})
 

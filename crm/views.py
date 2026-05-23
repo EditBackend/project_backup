@@ -49,68 +49,59 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
         )
 
 
-# =========================================================================
-# LUG'ATLAR (PipelineViewSet ENDI BaseCRMViewSet'DAN MEROS OLADI)
-# =========================================================================
 class PipelineViewSet(BaseCRMViewSet):
     """
-    Pipeline boshqaruvi. BaseCRMViewSet'dan meros olgani uchun
-    tashkilot bo'yicha filter va POST qilishda avtomat saqlash o'zi ishlaydi!
+    Pipeline boshqaruvi.
+    Frontenddan organization ID kelsa ham, kelmasa ham xatosiz POST qiladi.
     """
     serializer_class = CRMPipelineSerializer
 
+    # ==========================================
+    # 1. MA'LUMOTLARNI FILTERLASH (GET)
+    # ==========================================
     def get_queryset(self):
         user = self.request.user
         org = getattr(user, 'organization', None)
 
-        # Superuser hamma narsani ko'raversin
         if user.is_superuser:
             return CRMPipeline.objects.all()
 
-        # Eski null bo'lib qolgan pipelines 404 bermasligi uchun filter:
         from django.db.models import Q
         return CRMPipeline.objects.filter(
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
 
-    def perform_destroy(self, instance):
-        instance.delete()
+    # ==========================================
+    # 2. YANGI PIPELINE YARATISH (POST)
+    # ==========================================
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
 
-        # perform_create o'rniga aynan mana shu create metodini qo'ying:
-        def create(self, request, *args, **kwargs):
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
+        #  Frontendchi body'da organization yuborgan bo'lsa o'shani,
+        # bo'lmasa user'ning o'z organization'ini olamiz:
+        org_id = request.data.get('organization')
 
-            #  Tashkilot va yaratuvchini to'g'ridan-to'g'ri request.user dan majburiy tiqamiz:
+        if org_id:
             pipeline = serializer.save(
-                organization=request.user.organization,
+                organization_id=org_id,
+                created_by=request.user
+            )
+        else:
+            pipeline = serializer.save(
+                organization=getattr(request.user, 'organization', None),
                 created_by=request.user
             )
 
-            # Agar audit log kerak bo'lsa (ixtiyoriy):
-            # _log_audit(request, AuditEntityType.CRM, pipeline.id, AuditAction.CREATE, new_data={"name": pipeline.name})
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=200, headers=headers)
-    # ==========================================
-    # 2. PERFORM_DESTROY QISMINI TEKSHIRISH
-    # ==========================================
+
+    # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
-        # O'chirishdan oldin eski ma'lumotlarni Audit log uchun saqlab qolamiz (agar kerak bo'lsa)
-        # _log_audit(self.request, AuditEntityType.CRM, instance.id, AuditAction.DELETE, ...)
-
-        # Ob'ektni o'chiramiz
         instance.delete()
 
-    # ==========================================
-    # 3. BONUS: YARATILAYOTGANDA ORG_ID CHALUP BO'LMASLIGI UCHUN (POST)
-    # ==========================================
-    def perform_create(self, serializer):
-        # Yangi pipeline yaratilayotganda organization NULL bo'lib qolmasligini ta'minlaymiz
-        serializer.save(
-            organization=self.request.user.organization,
-            created_by=self.request.user
-        )
+
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
