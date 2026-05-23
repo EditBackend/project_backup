@@ -140,11 +140,12 @@ class CrmSectionViewSet(viewsets.ModelViewSet):
         return_serializer = self.get_serializer(section)
         return Response(return_serializer.data, status=status.HTTP_201_CREATED)
 
-    #To'g'rilangan joyi: perform_update mustaqil metod qilib qo'yildi
+    #  To'g'rilangan joyi: serializer.model o'rniga serializer.Meta.model ishlatildi
     def perform_update(self, serializer):
-        serializer.save(updated_by=self.request.user if hasattr(serializer.model, 'updated_by') else None)
-
-
+        model_class = serializer.Meta.model
+        serializer.save(
+            updated_by=self.request.user if hasattr(model_class, 'updated_by') else None
+        )
 # ==========================================
 # 2. PIPELINE BOSHQARUVI
 # ==========================================

@@ -53,7 +53,6 @@ class CRMSourceSerializer(serializers.ModelSerializer):
         model = CRMSource
         fields = ['id', 'name']
 
-
 class CRMLeadSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(
         required=True,
@@ -77,7 +76,7 @@ class CRMLeadSerializer(serializers.ModelSerializer):
             org = get_safe_organization(request.user)
             if CRMLead.objects.filter(phone_number=value, organization=org).exists():
                 raise serializers.ValidationError(
-                    "Ushbu telefon raqamli lid sizning bazangizda allaqachon mavjud."
+                    "Ushbu telefon raqamli lid sizning bazangizda allaqachon mevcut."
                 )
         return value
 
@@ -94,8 +93,12 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         org = get_safe_organization(user)
 
         if not org:
-            raise serializers.ValidationError(
-                {"non_field_errors": ["Tizimda hech qanday tashkilot topilmadi. Avval tashkilot yarating."]})
+            raise serializers.ValidationError({"non_field_errors": ["Tizimda hech qanday tashkilot topilmadi. Avval tashkilot yarating."]})
+
+        # 🔥 MANA SHU YERDA: Agar pipeline null kelsa, uni section orqali topib bog'laymiz
+        section = attrs.get('section')
+        if section and not attrs.get('pipeline'):
+            attrs['pipeline'] = section.pipeline
 
         branch = attrs.get('branch')
         if branch and branch.organization != org:
@@ -111,8 +114,7 @@ class CRMLeadSerializer(serializers.ModelSerializer):
 
         assigned_to = attrs.get('assigned_to')
         if assigned_to and hasattr(assigned_to, 'organization') and assigned_to.organization != org:
-            raise serializers.ValidationError(
-                {"assigned_to": "Lidni tayinlamoqchi bo'lgan xodim sizning markazingizda ishlamaydi."})
+            raise serializers.ValidationError({"assigned_to": "Lidni tayinlamoqchi bo'lgan xodim sizning markazingizda ishlamaydi."})
 
         return attrs
 
