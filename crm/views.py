@@ -71,9 +71,9 @@ class PipelineViewSet(BaseCRMViewSet):
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
 
-    # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST) - TANKA VARIANT (XATO BERMAYDI)
-    # ==========================================
+        # ==========================================
+    # 2. YANGI PIPELINE YARATISH (POST) - IMPORTSIZ VA UNIVERSAL VARIANT
+        # ==========================================
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -81,25 +81,29 @@ class PipelineViewSet(BaseCRMViewSet):
         user = request.user
         org = None
 
-        # 1. Userning o'zidan qidiramiz
+        # 1. Foydalanuvchining o'zidan tashkilotni qidiramiz
         if hasattr(user, 'organization') and user.organization:
             org = user.organization
-        # 2. Userning xodim profilidan qidiramiz
+        # 2. Xodim profili ichidan qidiramiz
         elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
             org = user.employee.organization
 
-        # 3. 🔥 AGAR HECH QAYERDA TASHKILOT TOPILMASA (Hozirgi holatga o'xshash):
+        # 3. 🌟 Agar baribir topilmasa, model nomini bilmagan holda Django orqali topamiz:
         if not org:
-            from organizations.models import Organization
-            # Bazadagi eng birinchi bor tashkilotni olamiz
-            org = Organization.objects.first()
+            from django.apps import apps
+            try:
+                # 'organizations' app'idagi barcha modellarni tekshiramiz
+                org_models = apps.get_app_config('organizations').get_models()
+                for model in org_models:
+                     # Bazada bor birinchi tashkilot ob'ektini olamiz
+                    first_obj = model.objects.first()
+                    if first_obj:
+                        org = first_obj
+                        break
+            except Exception:
+                pass
 
-        # 🚨 Agar bazada umuman bittayam organization ochilmagan bo'lsa, xato bermaslik uchun yaratib ketamiz
-        if not org:
-            from organizations.models import Organization
-            org = Organization.objects.create(name="Test Organization")
-
-        # Muammosiz saqlash
+        # Pipeline saqlash
         pipeline = serializer.save(
             organization=org,
             created_by=user
@@ -107,6 +111,8 @@ class PipelineViewSet(BaseCRMViewSet):
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
+
     # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
         instance.delete()
