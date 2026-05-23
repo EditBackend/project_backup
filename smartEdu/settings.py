@@ -216,4 +216,6 @@ SPECTACULAR_SETTINGS = {
 
 }
 
-
+# Neon Database pooling barqaror ishlashi uchun so'rovlar vaqtini nollashtiramiz
+if 'DATABASES' in locals() and 'default' in DATABASES:
+    DATABASES['default']['CONN_MAX_AGE'] = 0

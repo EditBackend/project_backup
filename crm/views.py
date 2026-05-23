@@ -52,27 +52,35 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
 class PipelineViewSet(BaseCRMViewSet):
     """
     Pipeline boshqaruvi.
-    Frontenddan organization ID kelsa ham, kelmasa ham xatosiz POST qiladi.
+    Frontenddan organization ID kelsa ham, kelmasa ham xatosiz POST qiladi va yo'qotib qo'ymaydi.
     """
+    # 🌟 O'chib ketgan queryset'ni majburiy biriktiramiz:
+    queryset = CRMPipeline.objects.all()
     serializer_class = CRMPipelineSerializer
 
     # ==========================================
-    # 1. MA'LUMOTLARNI FILTERLASH (GET)
+    # 1. MA'LUMOTLARNI FILTERLASH (GET) - YO'QOLMAYDIGAN VARIANT
     # ==========================================
     def get_queryset(self):
         user = self.request.user
         org = getattr(user, 'organization', None)
 
-        if user.is_superuser:
-            return CRMPipeline.objects.all()
+        # Agar userning o'zida tashkilot bo'lmasa, uning employee profilini ham tekshirib ko'ramiz
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # Superuser bo'lsa yoki test user bo'lsa (tashkiloti yo'q bo'lsa), hamma narsani ko'rsatsin, yo'qolib qolmasligi uchun
+        if user.is_superuser or not org:
+            return CRMPipeline.objects.all().order_by('-created_at')
 
         from django.db.models import Q
+        # Agar haqiqiy tashkiloti bo'lsa, faqat o'ziga tegishlilarini ko'radi
         return CRMPipeline.objects.filter(
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
 
     # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST) - TO'LIQ QAYTARADIGAN VARIANT
+    # 2. YANGI PIPELINE YARATISH (POST)
     # ==========================================
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -101,23 +109,20 @@ class PipelineViewSet(BaseCRMViewSet):
             except Exception:
                 pass
 
-        # 🚀 Obyektni saqlaymiz
+        # Obyektni saqlaymiz
         pipeline = serializer.save(
             organization=org,
             created_by=user
         )
 
-        #  MANA SHU YERDA: Yangi yaratilgan obyektni qayta o'qiymiz (ID va hamma narsa joyiga tushishi uchun)
-        # Va uni qayta serializerdan o'tkazib, frontendga to'liq holatda qaytaramiz
+        # Yangi yaratilgan obyektni bazadan toza holatda o'qib qaytaramiz
         return_serializer = self.get_serializer(pipeline)
-
         headers = self.get_success_headers(return_serializer.data)
         return Response(return_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
     # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
         instance.delete()
-
-
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
