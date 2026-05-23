@@ -72,26 +72,32 @@ class PipelineViewSet(BaseCRMViewSet):
         ).order_by('-created_at')
 
     # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST)
-    # ==========================================
+    # 2. YANGI PIPELINE YARATISH (POST) - ULTRA XAVFSIZ VARIANT
+        # ==========================================
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        #  Frontendchi body'da organization yuborgan bo'lsa o'shani,
-        # bo'lmasa user'ning o'z organization'ini olamiz:
-        org_id = request.data.get('organization')
+        # Frontendchi kalitni qanday nomlagan bo'lsa ham tutib olamiz:
+        org_id = request.data.get('organization') or request.data.get('organization_id')
 
-        if org_id:
-            pipeline = serializer.save(
-                organization_id=org_id,
-                created_by=request.user
+        #  Agar foydalanuvchining o'zida profilida tashkilot bo'lsa, o'shani ham zaxira sifatida olamiz
+        if not org_id and hasattr(request.user, 'organization') and request.user.organization:
+            org_id = request.user.organization.id
+
+        #  Agar hech qayerdan tashkilot topilmasa, bazani portlatmasdan frontendchiga chiroyli xato qaytaramiz:
+        if not org_id:
+            return Response(
+                {
+                    "error": "Tashkilot ID si (organization yoki organization_id) topilmadi! Iltimos, JSON ichida tashkilot ID sini yuboring."},
+                status=status.HTTP_400_BAD_REQUEST
             )
-        else:
-            pipeline = serializer.save(
-                organization=getattr(request.user, 'organization', None),
-                created_by=request.user
-            )
+
+        # Bazaga xatosiz saqlash:
+        pipeline = serializer.save(
+            organization_id=org_id,
+            created_by=request.user
+        )
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)

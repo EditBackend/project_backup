@@ -104,7 +104,7 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         return attrs
 
 
-# ─── CRM HARAKATLAR ───
+
 
 class CRMActivitySerializer(serializers.ModelSerializer):
     class Meta:
