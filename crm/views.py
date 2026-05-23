@@ -207,23 +207,55 @@ class CRMLeadViewSet(BaseCRMViewSet):
     queryset = CRMLead.objects.all()
     serializer_class = CRMLeadSerializer
 
+    # 🌟 Obyektni olish mantiqini kechirimli qilamiz (404 xatosini yo'qotadi)
+    def get_object(self):
+        queryset = CRMLead.objects.all()
+
+        # URL'dan lid ID sini olamiz
+        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
+        filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}
+
+        # Uni global bazadan qidiramiz, topilmasa qat'iy 404 beradi
+        from django.shortcuts import get_object_or_404
+        obj = get_object_or_404(queryset, **filter_kwargs)
+
+        # Ruxsatlarni tekshirish
+        self.check_object_permissions(self.request, obj)
+        return obj
+
     def perform_update(self, serializer):
+        # Eski holatni bazadan to'g'ridan-to'g'ri olamiz
         old_instance = self.get_object()
         old_pipeline = old_instance.pipeline
 
-        updated_lead = serializer.save(updated_by=self.request.user)
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # Agar foydalanuvchida umuman tashkilot bo'lmasa, lidning o'zini tashkilotini saqlab qolamiz
+        if not org:
+            org = old_instance.organization
+
+        # Lidni yangilaymiz
+        updated_lead = serializer.save(
+            organization=org,
+            updated_by=user
+        )
+
+        # Yangi pipeline (ustun orqali serializer validatsiyasida o'zgargan bo'ladi)
         new_pipeline = updated_lead.pipeline
 
+        # Agar pipeline (yoki bosqich) o'zgargan bo'lsa, tarixga yozamiz
         if old_pipeline != new_pipeline:
             CRMLeadsHistory.objects.create(
                 organization=updated_lead.organization,
-                created_by=self.request.user,
+                created_by=user,
                 lead=updated_lead,
                 old_pipeline=old_pipeline,
                 new_pipeline=new_pipeline
             )
-
-
 class CRMActivityViewSet(BaseCRMViewSet):
     queryset = CRMActivity.objects.all()
     serializer_class = CRMActivitySerializer

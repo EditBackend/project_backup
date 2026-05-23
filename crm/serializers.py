@@ -160,3 +160,5 @@ class CRMLeadLostSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"lead": "Bu lid allaqachon 'Rad etilgan' (Lost) holatiga o'tkazilgan."})
 
         return attrs
+
+
