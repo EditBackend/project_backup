@@ -1,22 +1,40 @@
 from rest_framework import serializers
 from django.utils import timezone
 from core.validators import validate_uz_phone
+from django.apps import apps
 from .models import (
     CRMPipeline, CrmSection, CRMSource, CRMLostReason,
     CRMLead, CRMActivity, CRMLeadLost, CRMLeadNotes, CRMLeadsHistory
 )
-from organizations.models import Branch
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
 
-# ─── YORDAMCHI SERIALIZERLAR (Tuzatilgan qismi) ───
+# 🔥 Dinamik tashkilot topuvchi yordamchi funksiya
+def get_safe_organization(user):
+    if not user:
+        return None
+    if hasattr(user, 'organization') and user.organization:
+        return user.organization
+    if hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+        return user.employee.organization
+
+    # Agar foydalanuvchida umuman bo'lmasa, bazadagi birinchisini oladi
+    try:
+        org_models = apps.get_app_config('organizations').get_models()
+        for model in org_models:
+            first_obj = model.objects.first()
+            if first_obj:
+                return first_obj
+    except Exception:
+        pass
+    return None
+
 
 class CRMPipelineSerializer(serializers.ModelSerializer):
     class Meta:
         model = CRMPipeline
-        # Frontendchi organization ID yuborishi uchun fields ichiga qo'shdik
         fields = ['id', 'name', 'position', 'organization']
         extra_kwargs = {
             'organization': {'required': False, 'allow_null': True}
@@ -36,11 +54,7 @@ class CRMSourceSerializer(serializers.ModelSerializer):
         fields = ['id', 'name']
 
 
-# ─── ASOSIY CRM LEAD SERIALIZER (Yaratish va Tahrirlash) ───
-
 class CRMLeadSerializer(serializers.ModelSerializer):
-    """ Liddlarni yaratish, tahrirlash va ko'rish uchun umumiy serializer """
-
     full_name = serializers.CharField(
         required=True,
         error_messages={'blank': "Lidning to'liq ismini kiritish majburiy."}
@@ -60,10 +74,8 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         value = validate_uz_phone(value)
         request = self.context.get('request')
         if request and request.method == 'POST':
-            if CRMLead.objects.filter(
-                    phone_number=value,
-                    organization=request.user.organization
-            ).exists():
+            org = get_safe_organization(request.user)
+            if CRMLead.objects.filter(phone_number=value, organization=org).exists():
                 raise serializers.ValidationError(
                     "Ushbu telefon raqamli lid sizning bazangizda allaqachon mavjud."
                 )
@@ -77,12 +89,13 @@ class CRMLeadSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
-        """ Global xavfsizlik va biznes mantiq tekshiruvlari """
         request = self.context.get('request')
-        org = request.user.organization if request else None
+        user = request.user if request else None
+        org = get_safe_organization(user)
 
         if not org:
-            raise serializers.ValidationError("Tashkilotga biriktirilmagan foydalanuvchi lid qo'sha olmaydi.")
+            raise serializers.ValidationError(
+                {"non_field_errors": ["Tizimda hech qanday tashkilot topilmadi. Avval tashkilot yarating."]})
 
         branch = attrs.get('branch')
         if branch and branch.organization != org:
@@ -97,13 +110,11 @@ class CRMLeadSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"source": "Tanlangan manba topilmadi."})
 
         assigned_to = attrs.get('assigned_to')
-        if assigned_to and assigned_to.organization != org:
+        if assigned_to and hasattr(assigned_to, 'organization') and assigned_to.organization != org:
             raise serializers.ValidationError(
                 {"assigned_to": "Lidni tayinlamoqchi bo'lgan xodim sizning markazingizda ishlamaydi."})
 
         return attrs
-
-
 
 
 class CRMActivitySerializer(serializers.ModelSerializer):
@@ -114,7 +125,8 @@ class CRMActivitySerializer(serializers.ModelSerializer):
 
     def validate_lead(self, value):
         request = self.context.get('request')
-        if value.organization != request.user.organization:
+        org = get_safe_organization(request.user if request else None)
+        if value.organization != org:
             raise serializers.ValidationError("Boshqa tashkilot lidiga harakat (activity) qo'sha olmaysiz.")
         return value
 
@@ -137,8 +149,9 @@ class CRMLeadLostSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         request = self.context.get('request')
         lead = attrs.get('lead')
+        org = get_safe_organization(request.user if request else None)
 
-        if lead.organization != request.user.organization:
+        if lead.organization != org:
             raise serializers.ValidationError({"lead": "Sizga tegishli bo'lmagan lidni rad eta olmaysiz."})
 
         if CRMLeadLost.objects.filter(lead=lead).exists():

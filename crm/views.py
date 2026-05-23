@@ -20,7 +20,6 @@ from .serializers import (
 class BaseCRMViewSet(viewsets.ModelViewSet):
     """
     Barcha CRM ViewSetlar uchun Ota-Klass.
-    Foydalanuvchining tashkiloti bo'lmasa ham bazaga xatosiz yozadi, yangilaydi va o'ziga ko'rsatadi.
     """
     permission_classes = [IsAuthenticated]
 
@@ -31,7 +30,6 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
         if not org and hasattr(user, 'employee') and user.employee:
             org = getattr(user.employee, 'organization', None)
 
-        # Superuser yoki tashkiloti bo'lmagan test user bo'lsa, hamma narsani ko'rsatsin
         if user.is_superuser or not org:
             return self.queryset.all().order_by('-created_at')
 
@@ -48,7 +46,6 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
         elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
             org = user.employee.organization
 
-        # Agar topilmasa, dinamik qidiramiz (Baza portlab ketmasligi uchun)
         if not org:
             try:
                 org_models = apps.get_app_config('organizations').get_models()
@@ -60,12 +57,8 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
 
-        serializer.save(
-            organization=org,
-            created_by=user
-        )
+        serializer.save(organization=org, created_by=user)
 
-    # 🌟 MANA SHU YERDA: Frontendchi PATCH yoki PUT so'rovi yuborganda ishlaydigan xavfsiz mantiq
     def perform_update(self, serializer):
         user = self.request.user
         org = None
@@ -86,19 +79,16 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
 
-        # Ma'lumotni yangilayotganda tashkilot o'chib ketmasligini ta'minlaymiz
         serializer.save(
             organization=org,
             updated_by=user if hasattr(serializer.model, 'updated_by') else None
         )
+
+
 # ==========================================
 #   1. CRM PIPELINE BO'LIMLARI (NABORLAR)
 # ==========================================
 class CrmSectionViewSet(viewsets.ModelViewSet):
-    """
-    CRM Pipeline bo'limlari (Naborlar) uchun API.
-    """
-
     queryset = CrmSection.objects.all()
     serializer_class = CrmSectionSerializer
     permission_classes = [IsAuthenticated]
@@ -146,26 +136,19 @@ class CrmSectionViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
 
-        section = serializer.save(
-            organization=org,
-            created_by=user
-        )
-
-        def perform_update(self, serializer):
-            # Section yangilanganida ham muammo bo'lmasligi uchun
-            serializer.save(updated_by=self.request.user if hasattr(serializer.model, 'updated_by') else None)
-
+        section = serializer.save(organization=org, created_by=user)
         return_serializer = self.get_serializer(section)
         return Response(return_serializer.data, status=status.HTTP_201_CREATED)
+
+    #To'g'rilangan joyi: perform_update mustaqil metod qilib qo'yildi
+    def perform_update(self, serializer):
+        serializer.save(updated_by=self.request.user if hasattr(serializer.model, 'updated_by') else None)
 
 
 # ==========================================
 # 2. PIPELINE BOSHQARUVI
 # ==========================================
 class PipelineViewSet(BaseCRMViewSet):
-    """
-    Pipeline boshqaruvi.
-    """
     queryset = CRMPipeline.objects.all()
     serializer_class = CRMPipelineSerializer
 
@@ -206,11 +189,7 @@ class PipelineViewSet(BaseCRMViewSet):
             except Exception:
                 pass
 
-        pipeline = serializer.save(
-            organization=org,
-            created_by=user
-        )
-
+        pipeline = serializer.save(organization=org, created_by=user)
         return_serializer = self.get_serializer(pipeline)
         return Response(return_serializer.data, status=status.HTTP_201_CREATED)
 
@@ -218,17 +197,11 @@ class PipelineViewSet(BaseCRMViewSet):
         instance.delete()
 
 
-# ==========================================
-# 3. MANBALAR (SOURCES)
-# ==========================================
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
 
 
-# ==========================================
-# 4. ASOSIY LIDLAR BOSHQARUVI
-# ==========================================
 class CRMLeadViewSet(BaseCRMViewSet):
     queryset = CRMLead.objects.all()
     serializer_class = CRMLeadSerializer
@@ -250,17 +223,11 @@ class CRMLeadViewSet(BaseCRMViewSet):
             )
 
 
-# ==========================================
-# 5. HARAKATLAR (CRM ACTIVITY)
-# ==========================================
 class CRMActivityViewSet(BaseCRMViewSet):
     queryset = CRMActivity.objects.all()
     serializer_class = CRMActivitySerializer
 
 
-# ==========================================
-# 6. LIDLAR TARIXI
-# ==========================================
 class CRMLeadsHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = CRMLeadsHistorySerializer
     permission_classes = [IsAuthenticated]
@@ -276,9 +243,6 @@ class CRMLeadsHistoryViewSet(viewsets.ModelViewSet):
         serializer.save(created_by=employee)
 
 
-# ==========================================
-# 7. LIDNI RAD ETISH (LOST)
-# ==========================================
 class CRMLeadLostViewSet(BaseCRMViewSet):
     queryset = CRMLeadLost.objects.all()
     serializer_class = CRMLeadLostSerializer
@@ -290,10 +254,7 @@ class CRMLeadLostViewSet(BaseCRMViewSet):
         if not org and hasattr(user, 'employee') and user.employee:
             org = getattr(user.employee, 'organization', None)
 
-        lost_record = serializer.save(
-            organization=org,
-            created_by=user
-        )
+        lost_record = serializer.save(organization=org, created_by=user)
         lead = lost_record.lead
         lead.status = 'lost'
         lead.save()
