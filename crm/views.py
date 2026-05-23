@@ -1,160 +1,59 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-# 'Pipeline' o'rniga 'CRMPipeline' deb import qilamiz:
-from crm.models import CRMPipeline
+from django.db.models import Q
+from django.apps import apps
+
+# Modellarni import qilish
 from .models import (
     CRMPipeline, CRMSource, CRMLostReason,
-    CRMLead, CRMActivity, CRMLeadsHistory, CRMLeadLost,CrmSection
+    CRMLead, CRMActivity, CRMLeadsHistory, CRMLeadLost, CrmSection
 )
+
+# Serializerlarni import qilish
 from .serializers import (
     CRMPipelineSerializer, CRMSourceSerializer,
-    CRMLeadSerializer, CRMActivitySerializer, CRMLeadLostSerializer,CRMLeadsHistorySerializer,CrmSectionSerializer
+    CRMLeadSerializer, CRMActivitySerializer, CRMLeadLostSerializer,
+    CRMLeadsHistorySerializer, CrmSectionSerializer
 )
-class CrmSectionViewSet(viewsets.ModelViewSet):
-    """
-    CRM Pipeline bo'limlari (Naborlar) uchun API.
-    Foydalanuvchining tashkiloti bo'lmasa ham yo'qotib qo'ymasdan ko'rsatadi.
-    """
-    queryset = CrmSection.objects.all()
-    serializer_class = CrmSectionSerializer
-    permission_classes = [IsAuthenticated]  # Token majburiyligini ta'minlaymiz
 
-    # ==========================================
-    # 1. SECTION RO'YXATINI OLISH (GET) - FILTRNI TO'G'RILASH
-    # ==========================================
-    def get_queryset(self):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
 
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        # Agar superuser bo'lsa yoki test user (tashkilotsiz) bo'lsa, hamma sectionlarni olsin
-        if user.is_superuser or not org:
-            queryset = CrmSection.objects.all()
-        else:
-            from django.db.models import Q
-            queryset = CrmSection.objects.filter(
-                Q(organization=org) | Q(organization__isnull=True)
-            )
-
-        # Frontenddan pipeline ID kelsa, faqat o'shanga tegishlilarini ajratamiz
-        pipeline_id = self.request.query_params.get('pipeline')
-        if pipeline_id:
-            queryset = queryset.filter(pipeline_id=pipeline_id)
-
-        return queryset.order_by('created_at')  # Ustunlar tartib bilan chiqishi uchun chiziqli tartiblash
-
-    # ==========================================
-    # 2. YANGI SECTION YARATISH (POST) - TASHKILOTNI TO'G'RI BIRIKTIRISH
-    # ==========================================
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user = request.user
-        org = None
-
-        if hasattr(user, 'organization') and user.organization:
-            org = user.organization
-        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
-            org = user.employee.organization
-
-        # Agar foydalanuvchida umuman tashkilot bo'lmasa, dinamik ravishda bazadagisini olamiz
-        if not org:
-            from django.apps import apps
-            try:
-                org_models = apps.get_app_config('organizations').get_models()
-                for model in org_models:
-                    first_obj = model.objects.first()
-                    if first_obj:
-                        org = first_obj
-                        break
-            except Exception:
-                pass
-
-        # Section obyektini saqlaymiz
-        section = serializer.save(
-            organization=org,
-            created_by=user
-        )
-
-        # Yangi yaratilgan obyektni to'liq holatda qaytaramiz
-        return_serializer = self.get_serializer(section)
-        headers = self.get_success_headers(return_serializer.data)
-        return Response(return_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+# ==========================================
+# 0. BARCHA CRM VIEWSETLAR UCHUN OTA-KLASS (ENG TEPADA BO'LISHI SHART)
+# ==========================================
 class BaseCRMViewSet(viewsets.ModelViewSet):
     """
     Barcha CRM ViewSetlar uchun Ota-Klass.
-    Bu xavfsizlikni bitta joydan boshqarish imkonini beradi.
+    Foydalanuvchining tashkiloti bo'lmasa ham bazaga xatosiz yozadi va o'ziga qaytarib ko'rsatadi.
     """
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         user = self.request.user
-        if not user.organization:
-            return self.queryset.none()
-        return self.queryset.filter(organization=user.organization).order_by('-created_at')
-
-    def perform_create(self, serializer):
-        # Yaratilayotgan obyektga kimligi va qaysi tashkilotdanligini majburan yopishtiramiz
-        serializer.save(
-            organization=self.request.user.organization,
-            created_by=self.request.user
-        )
-
-
-class PipelineViewSet(BaseCRMViewSet):
-    """
-    Pipeline boshqaruvi.
-    Frontenddan organization ID kelsa ham, kelmasa ham xatosiz POST qiladi va yo'qotib qo'ymaydi.
-    """
-    # 🌟 O'chib ketgan queryset'ni majburiy biriktiramiz:
-    queryset = CRMPipeline.objects.all()
-    serializer_class = CRMPipelineSerializer
-
-    # ==========================================
-    # 1. MA'LUMOTLARNI FILTERLASH (GET) - YO'QOLMAYDIGAN VARIANT
-    # ==========================================
-    def get_queryset(self):
-        user = self.request.user
         org = getattr(user, 'organization', None)
 
-        # Agar userning o'zida tashkilot bo'lmasa, uning employee profilini ham tekshirib ko'ramiz
         if not org and hasattr(user, 'employee') and user.employee:
             org = getattr(user.employee, 'organization', None)
 
-        # Superuser bo'lsa yoki test user bo'lsa (tashkiloti yo'q bo'lsa), hamma narsani ko'rsatsin, yo'qolib qolmasligi uchun
+        # Superuser yoki tashkiloti bo'lmagan test user bo'lsa, hamma narsani ko'rsatsin
         if user.is_superuser or not org:
-            return CRMPipeline.objects.all().order_by('-created_at')
+            return self.queryset.all().order_by('-created_at')
 
-        from django.db.models import Q
-        # Agar haqiqiy tashkiloti bo'lsa, faqat o'ziga tegishlilarini ko'radi
-        return CRMPipeline.objects.filter(
+        return self.queryset.filter(
             Q(organization=org) | Q(organization__isnull=True)
         ).order_by('-created_at')
 
-    # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST)
-    # ==========================================
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user = request.user
+    def perform_create(self, serializer):
+        user = self.request.user
         org = None
 
-        # 1. Foydalanuvchining o'zidan qidiramiz
         if hasattr(user, 'organization') and user.organization:
             org = user.organization
-        # 2. Xodim profili ichidan qidiramiz
         elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
             org = user.employee.organization
 
-        # 3. Agar topilmasa, dinamik qidiramiz
+        # Agar topilmasa, dinamik qidiramiz (Baza portlab ketmasligi uchun)
         if not org:
-            from django.apps import apps
             try:
                 org_models = apps.get_app_config('organizations').get_models()
                 for model in org_models:
@@ -165,40 +64,156 @@ class PipelineViewSet(BaseCRMViewSet):
             except Exception:
                 pass
 
-        # Obyektni saqlaymiz
+        serializer.save(
+            organization=org,
+            created_by=user
+        )
+
+
+# ==========================================
+# 1. CRM PIPELINE BO'LIMLARI (NABORLAR)
+# ==========================================
+class CrmSectionViewSet(viewsets.ModelViewSet):
+    """
+    CRM Pipeline bo'limlari (Naborlar) uchun API.
+    """
+    queryset = CrmSection.objects.all()
+    serializer_class = CrmSectionSerializer
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        if user.is_superuser or not org:
+            queryset = CrmSection.objects.all()
+        else:
+            queryset = CrmSection.objects.filter(
+                Q(organization=org) | Q(organization__isnull=True)
+            )
+
+        pipeline_id = self.request.query_params.get('pipeline')
+        if pipeline_id:
+            queryset = queryset.filter(pipeline_id=pipeline_id)
+
+        return queryset.order_by('created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        org = None
+
+        if hasattr(user, 'organization') and user.organization:
+            org = user.organization
+        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            org = user.employee.organization
+
+        if not org:
+            try:
+                org_models = apps.get_app_config('organizations').get_models()
+                for model in org_models:
+                    first_obj = model.objects.first()
+                    if first_obj:
+                        org = first_obj
+                        break
+            except Exception:
+                pass
+
+        section = serializer.save(
+            organization=org,
+            created_by=user
+        )
+
+        return_serializer = self.get_serializer(section)
+        return Response(return_serializer.data, status=status.HTTP_201_CREATED)
+
+
+# ==========================================
+# 2. PIPELINE BOSHQARUVI
+# ==========================================
+class PipelineViewSet(BaseCRMViewSet):
+    """
+    Pipeline boshqaruvi.
+    """
+    queryset = CRMPipeline.objects.all()
+    serializer_class = CRMPipelineSerializer
+
+    def get_queryset(self):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        if user.is_superuser or not org:
+            return CRMPipeline.objects.all().order_by('-created_at')
+
+        return CRMPipeline.objects.filter(
+            Q(organization=org) | Q(organization__isnull=True)
+        ).order_by('-created_at')
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        org = None
+
+        if hasattr(user, 'organization') and user.organization:
+            org = user.organization
+        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            org = user.employee.organization
+
+        if not org:
+            try:
+                org_models = apps.get_app_config('organizations').get_models()
+                for model in org_models:
+                    first_obj = model.objects.first()
+                    if first_obj:
+                        org = first_obj
+                        break
+            except Exception:
+                pass
+
         pipeline = serializer.save(
             organization=org,
             created_by=user
         )
 
-        # Yangi yaratilgan obyektni bazadan toza holatda o'qib qaytaramiz
         return_serializer = self.get_serializer(pipeline)
-        headers = self.get_success_headers(return_serializer.data)
-        return Response(return_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+        return Response(return_serializer.data, status=status.HTTP_201_CREATED)
 
-    # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
         instance.delete()
+
+
+# ==========================================
+# 3. MANBALAR (SOURCES)
+# ==========================================
 class CRMSourceViewSet(BaseCRMViewSet):
     queryset = CRMSource.objects.all()
     serializer_class = CRMSourceSerializer
 
 
-# Asosiy Lidlar boshqaruvi
+# ==========================================
+# 4. ASOSIY LIDLAR BOSHQARUVI
+# ==========================================
 class CRMLeadViewSet(BaseCRMViewSet):
     queryset = CRMLead.objects.all()
     serializer_class = CRMLeadSerializer
 
     def perform_update(self, serializer):
-        # 1. Eski ma'lumotni bazadan olamiz (O'zgartirishdan oldin)
         old_instance = self.get_object()
         old_pipeline = old_instance.pipeline
 
-        # 2. Yangilangan ma'lumotni saqlaymiz
         updated_lead = serializer.save(updated_by=self.request.user)
         new_pipeline = updated_lead.pipeline
 
-        # 3. Mantiq: Agar Pipeline (Bosqich) o'zgargan bo'lsa, Tarixga yozib qo'yamiz
         if old_pipeline != new_pipeline:
             CRMLeadsHistory.objects.create(
                 organization=updated_lead.organization,
@@ -209,37 +224,50 @@ class CRMLeadViewSet(BaseCRMViewSet):
             )
 
 
-# Harakatlar (Qo'ng'iroq va uchrashuvlar)
+# ==========================================
+# 5. HARAKATLAR (CRM ACTIVITY)
+# ==========================================
 class CRMActivityViewSet(BaseCRMViewSet):
     queryset = CRMActivity.objects.all()
     serializer_class = CRMActivitySerializer
+
+
+# ==========================================
+# 6. LIDLAR TARIXI
+# ==========================================
 class CRMLeadsHistoryViewSet(viewsets.ModelViewSet):
     serializer_class = CRMLeadsHistorySerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Faqat foydalanuvchi tashkilotiga tegishli leadlar tarixini qaytaramiz
         employee = getattr(self.request.user, 'employee', None)
         if employee and employee.organization:
             return CRMLeadsHistory.objects.filter(lead__organization=employee.organization)
         return CRMLeadsHistory.objects.none()
 
     def perform_create(self, serializer):
-        # Yaratuvchini avtomatik employee sifatida saqlaymiz
         employee = getattr(self.request.user, 'employee', None)
         serializer.save(created_by=employee)
 
-# Lidni rad etish (Lost)
+
+# ==========================================
+# 7. LIDNI RAD ETISH (LOST)
+# ==========================================
 class CRMLeadLostViewSet(BaseCRMViewSet):
     queryset = CRMLeadLost.objects.all()
     serializer_class = CRMLeadLostSerializer
 
     def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
         lost_record = serializer.save(
-            organization=self.request.user.organization,
-            created_by=self.request.user
+            organization=org,
+            created_by=user
         )
-        # Lidning umumiy statusini ham 'lost' ga o'zgartirib qo'yamiz
         lead = lost_record.lead
         lead.status = 'lost'
         lead.save()
