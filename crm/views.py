@@ -17,14 +17,10 @@ from .serializers import (
     CRMLeadsHistorySerializer, CrmSectionSerializer
 )
 
-
-# ==========================================
-# 0. BARCHA CRM VIEWSETLAR UCHUN OTA-KLASS (ENG TEPADA BO'LISHI SHART)
-# ==========================================
 class BaseCRMViewSet(viewsets.ModelViewSet):
     """
     Barcha CRM ViewSetlar uchun Ota-Klass.
-    Foydalanuvchining tashkiloti bo'lmasa ham bazaga xatosiz yozadi va o'ziga qaytarib ko'rsatadi.
+    Foydalanuvchining tashkiloti bo'lmasa ham bazaga xatosiz yozadi, yangilaydi va o'ziga ko'rsatadi.
     """
     permission_classes = [IsAuthenticated]
 
@@ -69,14 +65,40 @@ class BaseCRMViewSet(viewsets.ModelViewSet):
             created_by=user
         )
 
+    # 🌟 MANA SHU YERDA: Frontendchi PATCH yoki PUT so'rovi yuborganda ishlaydigan xavfsiz mantiq
+    def perform_update(self, serializer):
+        user = self.request.user
+        org = None
 
+        if hasattr(user, 'organization') and user.organization:
+            org = user.organization
+        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            org = user.employee.organization
+
+        if not org:
+            try:
+                org_models = apps.get_app_config('organizations').get_models()
+                for model in org_models:
+                    first_obj = model.objects.first()
+                    if first_obj:
+                        org = first_obj
+                        break
+            except Exception:
+                pass
+
+        # Ma'lumotni yangilayotganda tashkilot o'chib ketmasligini ta'minlaymiz
+        serializer.save(
+            organization=org,
+            updated_by=user if hasattr(serializer.model, 'updated_by') else None
+        )
 # ==========================================
-# 1. CRM PIPELINE BO'LIMLARI (NABORLAR)
+#   1. CRM PIPELINE BO'LIMLARI (NABORLAR)
 # ==========================================
 class CrmSectionViewSet(viewsets.ModelViewSet):
     """
     CRM Pipeline bo'limlari (Naborlar) uchun API.
     """
+
     queryset = CrmSection.objects.all()
     serializer_class = CrmSectionSerializer
     permission_classes = [IsAuthenticated]
@@ -128,6 +150,10 @@ class CrmSectionViewSet(viewsets.ModelViewSet):
             organization=org,
             created_by=user
         )
+
+        def perform_update(self, serializer):
+            # Section yangilanganida ham muammo bo'lmasligi uchun
+            serializer.save(updated_by=self.request.user if hasattr(serializer.model, 'updated_by') else None)
 
         return_serializer = self.get_serializer(section)
         return Response(return_serializer.data, status=status.HTTP_201_CREATED)
