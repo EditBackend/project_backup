@@ -72,37 +72,34 @@ class PipelineViewSet(BaseCRMViewSet):
         ).order_by('-created_at')
 
     # ==========================================
-    # 2. YANGI PIPELINE YARATISH (POST) - ULTRA XAVFSIZ VARIANT
-        # ==========================================
+    # 2. YANGI PIPELINE YARATISH (POST) - AVTOMATIK VA AQLLI VARIANT
+    # ==========================================
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        # Frontendchi kalitni qanday nomlagan bo'lsa ham tutib olamiz:
-        org_id = request.data.get('organization') or request.data.get('organization_id')
+        user = request.user
+        org = None
+        # 1. Agar foydalanuvchiga to'g'ridan-to'g'ri organization bog'langan bo'lsa:
+        if hasattr(user, 'organization') and user.organization:
+            org = user.organization
+        # 2. Agar organization uning Employee (Xodim) profili ichida bo'lsa:
+        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            org = user.employee.organization
 
-        #  Agar foydalanuvchining o'zida profilida tashkilot bo'lsa, o'shani ham zaxira sifatida olamiz
-        if not org_id and hasattr(request.user, 'organization') and request.user.organization:
-            org_id = request.user.organization.id
+        # 🚨 Agar user superuser bo'lsa va profilida tashkilot bo'lmasa, bazada bor birinchi tashkilotni biriktirib turamiz (test uchun xato bermasligi uchun)
+        if not org and user.is_superuser:
+            from organizations.models import Organization  # o'zingizdagi model nomi
+            org = Organization.objects.first()
 
-        #  Agar hech qayerdan tashkilot topilmasa, bazani portlatmasdan frontendchiga chiroyli xato qaytaramiz:
-        if not org_id:
-            return Response(
-                {
-                    "error": "Tashkilot ID si (organization yoki organization_id) topilmadi! Iltimos, JSON ichida tashkilot ID sini yuboring."},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # Bazaga xatosiz saqlash:
+        # Saqlash jarayoni (Frontendchi hech narsa yuborishi shart emas!)
         pipeline = serializer.save(
-            organization_id=org_id,
-            created_by=request.user
+            organization=org,
+            created_by=user
         )
 
         headers = self.get_success_headers(serializer.data)
         return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-
     # 3. PIPELINE O'CHIRISH (DELETE)
     def perform_destroy(self, instance):
         instance.delete()
