@@ -11,23 +11,79 @@ from .serializers import (
     CRMPipelineSerializer, CRMSourceSerializer,
     CRMLeadSerializer, CRMActivitySerializer, CRMLeadLostSerializer,CRMLeadsHistorySerializer,CrmSectionSerializer
 )
-
 class CrmSectionViewSet(viewsets.ModelViewSet):
     """
     CRM Pipeline bo'limlari (Naborlar) uchun API.
+    Foydalanuvchining tashkiloti bo'lmasa ham yo'qotib qo'ymasdan ko'rsatadi.
     """
-    queryset = CrmSection.objects.all().order_by('-created_at')
+    queryset = CrmSection.objects.all()
     serializer_class = CrmSectionSerializer
+    permission_classes = [IsAuthenticated]  # Token majburiyligini ta'minlaymiz
 
+    # ==========================================
+    # 1. SECTION RO'YXATINI OLISH (GET) - FILTRNI TO'G'RILASH
+    # ==========================================
     def get_queryset(self):
-        queryset = self.queryset
-        pipeline_id = self.request.query_params.get('pipeline')
+        user = self.request.user
+        org = getattr(user, 'organization', None)
 
-        # Agar pipeline_id kelgan bo'lsa, faqat o'sha pipeline'ga tegishli sectionlarni chiqaramiz
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # Agar superuser bo'lsa yoki test user (tashkilotsiz) bo'lsa, hamma sectionlarni olsin
+        if user.is_superuser or not org:
+            queryset = CrmSection.objects.all()
+        else:
+            from django.db.models import Q
+            queryset = CrmSection.objects.filter(
+                Q(organization=org) | Q(organization__isnull=True)
+            )
+
+        # Frontenddan pipeline ID kelsa, faqat o'shanga tegishlilarini ajratamiz
+        pipeline_id = self.request.query_params.get('pipeline')
         if pipeline_id:
             queryset = queryset.filter(pipeline_id=pipeline_id)
 
-        return queryset
+        return queryset.order_by('created_at')  # Ustunlar tartib bilan chiqishi uchun chiziqli tartiblash
+
+    # ==========================================
+    # 2. YANGI SECTION YARATISH (POST) - TASHKILOTNI TO'G'RI BIRIKTIRISH
+    # ==========================================
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        user = request.user
+        org = None
+
+        if hasattr(user, 'organization') and user.organization:
+            org = user.organization
+        elif hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            org = user.employee.organization
+
+        # Agar foydalanuvchida umuman tashkilot bo'lmasa, dinamik ravishda bazadagisini olamiz
+        if not org:
+            from django.apps import apps
+            try:
+                org_models = apps.get_app_config('organizations').get_models()
+                for model in org_models:
+                    first_obj = model.objects.first()
+                    if first_obj:
+                        org = first_obj
+                        break
+            except Exception:
+                pass
+
+        # Section obyektini saqlaymiz
+        section = serializer.save(
+            organization=org,
+            created_by=user
+        )
+
+        # Yangi yaratilgan obyektni to'liq holatda qaytaramiz
+        return_serializer = self.get_serializer(section)
+        headers = self.get_success_headers(return_serializer.data)
+        return Response(return_serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 class BaseCRMViewSet(viewsets.ModelViewSet):
     """
     Barcha CRM ViewSetlar uchun Ota-Klass.
