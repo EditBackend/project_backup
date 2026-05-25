@@ -39,6 +39,23 @@ class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        if not org:
+            try:
+                Organization = apps.get_model('organizations', 'Organization')
+                org = Organization.objects.first()
+            except Exception:
+                pass
+
+        serializer.save(organization=org, created_by=user)
+
+
     def get_queryset(self):
         # Tashkilot himoya qatlami
         print("organization -> ", self.request.user.organization)
@@ -290,6 +307,21 @@ class StudentLeaveFreezeView(APIView):
 
         return Response(serializer.errors, status=400)
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        if not org:
+            try:
+                Organization = apps.get_model('organizations', 'Organization')
+                org = Organization.objects.first()
+            except Exception:
+                pass
+
+        serializer.save(organization=org, created_by=user)
 
 # 1. Individual narxlar
 class StudentPricingViewSet(viewsets.ModelViewSet):

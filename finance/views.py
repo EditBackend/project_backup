@@ -45,10 +45,27 @@ class BaseFinanceViewSet(viewsets.ModelViewSet):
             created_by=self.request.user
         )
 
-# ----------------- KASSA CHIQIMLARI -----------------
+# ---------------- KASSA CHIQIMLARI -----------------
 class ExpenseCategoryViewSet(BaseFinanceViewSet):
     queryset = ExpenseCategory.objects.all()
     serializer_class = ExpenseCategorySerializer
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
+        if not org:
+            try:
+                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
+                org = Organization.objects.first()
+            except Exception:
+                pass
+
+        serializer.save(organization=org, created_by=user)
 
 class ExpenseViewSet(BaseFinanceViewSet):
     queryset = Expense.objects.select_related('category').all()
@@ -65,10 +82,42 @@ class BonusViewSet(BaseFinanceViewSet):
     queryset = Bonus.objects.all()
     serializer_class = BonusSerializer
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # 🌟 Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
+        if not org:
+            try:
+                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
+                org = Organization.objects.first()
+            except Exception:
+                pass
+
+        serializer.save(organization=org, created_by=user)
 class FineViewSet(BaseFinanceViewSet):
     queryset = Fine.objects.all()
     serializer_class = FineSerializer
 
+    def perform_create(self, serializer):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        # 🌟 Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
+        if not org:
+            try:
+                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
+                org = Organization.objects.first()
+            except Exception:
+                pass
+
+        serializer.save(organization=org, created_by=user)
 class EmployeeSalaryPaymentViewSet(BaseFinanceViewSet):
     queryset = EmployeeSalaryPayment.objects.all()
     serializer_class = EmployeeSalaryPaymentSerializer
