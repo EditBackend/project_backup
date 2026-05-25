@@ -1,25 +1,40 @@
+
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Prefetch, F
 from django.shortcuts import get_object_or_404
+from django.apps import apps  # 🟢 APPS IMPORTI QO'SHILDI
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.exceptions import ValidationError
 from rest_framework.decorators import action
+from rest_framework_simplejwt.views import TokenObtainPairView
+
+# Asosiy universal ViewSet (Agar alohida utilsda bo'lsa, o'sha yerdan import qiling)
+from crm.views import UniversalBaseViewSet
+
 from academics.models import (
-    Student, StudentGroup, StudentBalances, StudentTransaction, StudentGroupLeaves, StudentFreezes,StudentPricing,LeaveReason,StudentBalanceHistory
+    Student, StudentGroup, StudentBalances, StudentTransaction,
+    StudentGroupLeaves, StudentFreezes, StudentPricing, LeaveReason, StudentBalanceHistory
 )
 from academics.serializers.student import (
-    StudentSerializer, StudentTransactionSerializer, StudentFreezeSerializer,StudentPricingSerializer,StudentGroupSerializer,LeaveReasonSerializer,StudentBalanceHistorySerializer,StudentBalanceSerializer,StudentGroupLeavesSerializer
+    StudentSerializer, StudentTransactionSerializer, StudentFreezeSerializer,
+    StudentPricingSerializer, StudentGroupSerializer, LeaveReasonSerializer,
+    StudentBalanceHistorySerializer, StudentBalanceSerializer, StudentGroupLeavesSerializer
 )
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
 
 def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=None):
+    # Foydalanuvchining tashkilotini xavfsiz olish
+    org = getattr(request.user, 'organization', None)
+    if not org and hasattr(request.user, 'employee') and request.user.employee:
+        org = getattr(request.user.employee, 'organization', None)
+
     AuditLog.objects.create(
-        organization=request.user.organization,
+        organization=org,
         branch=getattr(request.user, 'branch', None),
         created_by=request.user,
         entity_type=entity_type,
@@ -35,72 +50,54 @@ class StudentGroupLeavesViewSet(viewsets.ModelViewSet):
     serializer_class = StudentGroupLeavesSerializer
 
 
-class StudentViewSet(viewsets.ModelViewSet):
+class MyTokenObtainPairView(TokenObtainPairView):
+    """ Login qilinganda serializer'ni xavfsiz yashirin import qilish """
+    @property
+    def serializer_class(self):
+        # 🟢 LOCAL IMPORT - Circular import va xatolikni yo'q qiladi!
+        from accounts.serializers import MyTokenObtainPairSerializer
+        return MyTokenObtainPairSerializer
+
+
+# 🟢 UniversalBaseViewSet'dan voris olamiz - hamma organization xatolarini yopadi!
+class StudentViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
+    queryset = Student.objects.all()
+
+    def get_queryset(self):
+        # request.user'dan tashkilotni xavfsiz topish
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        if user.is_superuser or not org:
+            return Student.objects.all().select_related('balance_info').order_by('-created_at')
+        return Student.objects.filter(organization=org).select_related('balance_info').order_by('-created_at')
 
     def perform_create(self, serializer):
         user = self.request.user
         org = getattr(user, 'organization', None)
-
         if not org and hasattr(user, 'employee') and user.employee:
             org = getattr(user.employee, 'organization', None)
 
-        if not org:
-            try:
-                Organization = apps.get_model('organizations', 'Organization')
-                org = Organization.objects.first()
-            except Exception:
-                pass
-
-        serializer.save(organization=org, created_by=user)
-
-
-    def get_queryset(self):
-        # Tashkilot himoya qatlami
-        print("organization -> ", self.request.user.organization)
-        return Student.objects.filter(
-            organization=self.request.user.organization
-        ).select_related('balance_info').order_by('-created_at')
-
-    def perform_create(self, serializer):
-        print("organization -> ", self.request.user.organization)
-        organization = self.request.user.organization
-        print("organization ->", organization)
-        # =================================================================
-        # 1. SAAS TARIF LIMITINI TEKSHIRISH
-        # =================================================================
-        # Hozirgi aktiv o'quvchilar sonini hisoblaymiz
-        current_count = Student.objects.filter(
-            organization=organization,
-            status='active'  # is_active o'rniga status='active' ishlatamiz
-        ).count()
-
-        # Limitdan oshib ketmaganligini tekshiramiz
-        # if not organization.has_student_capacity(current_count):
-        #     raise ValidationError({
-        #         "limit_error": "Tarif limitingiz tugadi! O'quvchilar soni tarifda belgilanganidan oshib ketdi. Iltimos, tarifingizni yangilang."
-        #     })
-
-        # =================================================================
-        # 2. ASOSIY YARATISH JARAYONI (MOLIYA VA AUDIT BILAN)
-        # =================================================================
         with transaction.atomic():
-            # Agar hammasi joyida bo'lsa, saqlaymiz
             student = serializer.save(
-                organization=organization,
-                branch=getattr(self.request.user, 'branch', None),
-                created_by=self.request.user
+                organization=org,
+                branch=getattr(user, 'branch', None),
+                created_by=user
             )
-
-            # Yangi talabaga avtomatik 0 so'm balans ochamiz
-            StudentBalances.objects.create(
+            # Avtomatik balans ochish
+            StudentBalances.objects.get_or_create(
                 student=student,
-                organization=organization,
-                branch=getattr(self.request.user, 'branch', None)
+                defaults={
+                    'balance': Decimal('0'),
+                    'organization': org,
+                    'branch': getattr(user, 'branch', None)
+                }
             )
 
-        # Audit Log yozib qoldiramiz
         self._log_audit(
             entity_type=AuditEntityType.STUDENT,
             entity_id=student.id,
@@ -108,12 +105,16 @@ class StudentViewSet(viewsets.ModelViewSet):
             new_data={"name": student.full_name, "phone": student.phone_number}
         )
 
-    # (Yordamchi metod Audit uchun)
     def _log_audit(self, entity_type, entity_id, action, old_data=None, new_data=None):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
         AuditLog.objects.create(
-            organization=self.request.user.organization,
-            branch=getattr(self.request.user, 'branch', None),
-            created_by=self.request.user,
+            organization=org,
+            branch=getattr(user, 'branch', None),
+            created_by=user,
             entity_type=entity_type,
             entity_id=entity_id,
             action=action,
@@ -121,12 +122,15 @@ class StudentViewSet(viewsets.ModelViewSet):
             new_data=new_data
         )
 
-
-    # 2. ALOHIDA METOD SIFATIDA CHIQARAMIZ
     @action(detail=True, methods=['post'], url_path='add-to-group')
     def add_to_group(self, request, pk=None):
         student = self.get_object()
         group_id = request.data.get('group_id')
+        user = request.user
+
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
 
         if not group_id:
             return Response({"error": "group_id majburiy maydon!"}, status=status.HTTP_400_BAD_REQUEST)
@@ -141,31 +145,30 @@ class StudentViewSet(viewsets.ModelViewSet):
             if already_exists:
                 return Response({"message": "Talaba ushbu guruhda allaqachon bor!"}, status=status.HTTP_400_BAD_REQUEST)
 
-            # 🔥 joined_at maydoniga bugungi sanani berib yuboramiz:
             from django.utils import timezone
-
             StudentGroup.objects.create(
                 student=student,
                 group_id=group_id,
-                joined_at=timezone.now().date(),  # ✅ BU QATOR QO'SHILDI
-                organization=request.user.organization,
-                created_by=request.user
+                joined_at=timezone.now().date(),
+                organization=org,
+                created_by=user
             )
-
             return Response({"message": "Talaba guruhga muvaffaqiyatli qo'shildi"}, status=status.HTTP_200_OK)
-
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+
 class TalabalarMalumotView(APIView):
-    """ Barcha talabalar haqida to'liq hisobot (N+1 muammosisiz optimallashtirilgan) """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Optimallashtirilgan so'rov (Database ga 1000 marta emas, 3 marta murojaat qiladi)
-        students = Student.objects.filter(organization=request.user.organization).select_related(
-            'balance_info').prefetch_related(
-            Prefetch('student_groups',
-                     queryset=StudentGroup.objects.select_related('group').filter(left_at__isnull=True)),
+        user = request.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        students = Student.objects.filter(organization=org).select_related('balance_info').prefetch_related(
+            Prefetch('student_groups', queryset=StudentGroup.objects.select_related('group').filter(left_at__isnull=True)),
             Prefetch('transactions', queryset=StudentTransaction.objects.order_by('-transaction_date'))
         )
 
@@ -185,13 +188,12 @@ class TalabalarMalumotView(APIView):
             })
         return Response(result, status=200)
 
+
 class StudentAddPaymentView(APIView):
-    """ Talabadan to'lov qabul qilish va balansni oshirish """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, student_id):
         try:
-            # Kelayotgan summani tekshiramiz
             amount_raw = request.data.get('amount')
             if not amount_raw:
                 return Response({'error': "Summani kiriting"}, status=400)
@@ -200,183 +202,141 @@ class StudentAddPaymentView(APIView):
             if amount <= 0:
                 raise InvalidOperation
 
-            # 🔥 DUBLE TO'LOVNING OLDINI OLISH (IDEMPOTENCY)
+            user = request.user
+            org = getattr(user, 'organization', None)
+            if not org and hasattr(user, 'employee') and user.employee:
+                org = getattr(user.employee, 'organization', None)
+
             from django.utils import timezone
             from datetime import timedelta
-
-            # Oxirgi 1 daqiqa (60 soniya) vaqt oralig'ini olamiz
             bir_daqiqa_oldin = timezone.now() - timedelta(minutes=1)
 
-            # Bazada aynan shu talabaga, aynan shu summada, oxirgi 1 daqiqada to'lov yaratilganmi?
             double_check = StudentTransaction.objects.filter(
                 student_id=student_id,
                 amount=amount,
                 transaction_type='payment',
-                organization=request.user.organization,
-                created_at__gte=bir_daqiqa_oldin  # Agar modelingizda 'created_at' bo'lsa. (Agar yo'q bo'lsa 'transaction_date__gte' qiling)
+                organization=org,
+                created_at__gte=bir_daqiqa_oldin
             ).exists()
 
             if double_check:
-                return Response({
-                    'error': "Tizim ketma-ket (dublikat) so'rovni aniqladi! Iltimos, 1 daqiqa kuting yoki tugmani qayta bosmang."
-                }, status=400)
+                return Response({'error': "Ketma-ket so'rov aniqlandi. 1 daqiqa kuting!"}, status=400)
 
-            # =================================================================
-            # ASOSIY BAZAGA YOZISH JARAYONI
-            # =================================================================
             with transaction.atomic():
-                # select_for_update() balansni parallel so'rovlarda noto'g'ri hisoblanishidan himoya qiladi
-                student = get_object_or_404(
-                    Student.objects.select_for_update(),
-                    pk=student_id,
-                    organization=request.user.organization
-                )
+                student = get_object_or_404(Student.objects.select_for_update(), pk=student_id, organization=org)
 
-                # Tranzaksiyani yaratish
                 txn = StudentTransaction.objects.create(
                     student=student,
                     amount=amount,
                     transaction_type='payment',
                     payment_type=request.data.get('payment_type', 'cash'),
                     comment=request.data.get('comment', ''),
-                    organization=request.user.organization,
-                    created_by=request.user
+                    organization=org,
+                    created_by=user
                 )
 
-                # Balansni yangilash
                 balance_obj, _ = StudentBalances.objects.get_or_create(
                     student=student,
-                    defaults={'balance': Decimal('0'), 'organization': request.user.organization}
+                    defaults={'balance': Decimal('0'), 'organization': org}
                 )
                 old_balance = balance_obj.balance
                 balance_obj.balance = old_balance + amount
                 balance_obj.save()
 
-            # Audit Log
             _log_audit(request, AuditEntityType.PAYMENT, txn.id, AuditAction.CREATE,
                        old_data={'balance': str(old_balance)},
                        new_data={'amount': str(amount), 'new_balance': str(balance_obj.balance)})
 
-            return Response(
-                {'success': True, 'new_balance': str(balance_obj.balance), 'message': "To'lov qabul qilindi."},
-                status=201)
-
+            return Response({'success': True, 'new_balance': str(balance_obj.balance)}, status=201)
         except InvalidOperation:
-            return Response({'error': "Noto'g'ri summa kiritildi"}, status=400)
+            return Response({'error': "Noto'g'ri summa"}, status=400)
         except Exception as e:
             return Response({'error': str(e)}, status=400)
+
+
 class StudentLeaveFreezeView(APIView):
-    """ Talabani guruhdan chiqarish yoki muzlatish """
     permission_classes = [IsAuthenticated]
 
     def post(self, request, action):
         student_id = request.data.get('student')
-        student = get_object_or_404(Student, pk=student_id, organization=request.user.organization)
+        user = request.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        student = get_object_or_404(Student, pk=student_id, organization=org)
 
         if action == 'leave':
-            serializer = StudentLeavesSerializer(data=request.data, context={'request': request})
+            # 🟢 SIZDA SERIALIZER IMPORT BO'LMAGAN, SHU ERDA TO'G'RILANDI
+            serializer = StudentGroupLeavesSerializer(data=request.data, context={'request': request})
             if serializer.is_valid():
-                leave = serializer.save(organization=request.user.organization, created_by=request.user)
+                leave = serializer.save(organization=org, created_by=user)
 
-                # Guruhdan chiqish vaqtini belgilaymiz
                 sg = leave.student_group
                 sg.left_at = leave.leave_date
                 sg.save()
 
-                # Agar pul qaytarilishi kerak bo'lsa
                 if leave.refund_amount > 0:
                     with transaction.atomic():
-                        bal, _ = StudentBalances.objects.get_or_create(student=student)
+                        bal, _ = StudentBalances.objects.get_or_create(student=student, defaults={'organization': org})
                         bal.balance += leave.refund_amount
                         bal.save()
                         StudentTransaction.objects.create(
                             student=student, amount=leave.refund_amount, transaction_type='refund',
-                            payment_type='cash', comment="Guruhdan chiqish uchun qaytarildi", created_by=request.user
+                            payment_type='cash', comment="Guruhdan chiqish uchun qaytarildi",
+                            organization=org, created_by=user
                         )
-                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE,
-                           new_data={"action": "Guruhdan chiqdi"})
+                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE, new_data={"action": "Guruhdan chiqdi"})
                 return Response({"message": "Talaba guruhdan chiqarildi"}, status=200)
 
         elif action == 'freeze':
             serializer = StudentFreezeSerializer(data=request.data, context={'request': request})
             if serializer.is_valid():
-                serializer.save(organization=request.user.organization, created_by=request.user)
-                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE,
-                           new_data={"action": "Muzlatildi"})
+                serializer.save(organization=org, created_by=user)
+                _log_audit(request, AuditEntityType.STUDENT, student.id, AuditAction.UPDATE, new_data={"action": "Muzlatildi"})
                 return Response({"message": "Talaba muzlatildi"}, status=201)
 
         return Response(serializer.errors, status=400)
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
 
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        if not org:
-            try:
-                Organization = apps.get_model('organizations', 'Organization')
-                org = Organization.objects.first()
-            except Exception:
-                pass
-
-        serializer.save(organization=org, created_by=user)
-
-# 1. Individual narxlar
-class StudentPricingViewSet(viewsets.ModelViewSet):
+# QOLGAN BARCHA VIEWSETLAR UNIVERSALBASEVIEWSET GA O'TKAZILDI
+class StudentPricingViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentPricingSerializer
-    def get_queryset(self):
-        return StudentPricing.objects.filter(organization=self.request.user.organization)
-    def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+    queryset = StudentPricing.objects.all()
 
-# 2. Guruhga biriktirish (StudentGroup)
-class StudentGroupViewSet(viewsets.ModelViewSet):
+
+class StudentGroupViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentGroupSerializer
-    def get_queryset(self):
-        return StudentGroup.objects.filter(organization=self.request.user.organization)
-    def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+    queryset = StudentGroup.objects.all()
 
-# 3. Tranzaksiyalar tarixi (Faqat ko'rish va o'chirish/tahrirlash uchun)
-class StudentTransactionViewSet(viewsets.ModelViewSet):
+
+class StudentTransactionViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentTransactionSerializer
-    def get_queryset(self):
-        return StudentTransaction.objects.filter(organization=self.request.user.organization)
+    queryset = StudentTransaction.objects.all()
 
-# 4. Ketish sabablari (Lug'at)
-class LeaveReasonViewSet(viewsets.ModelViewSet):
+
+class LeaveReasonViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = LeaveReasonSerializer
-    def get_queryset(self):
-        return LeaveReason.objects.filter(organization=self.request.user.organization)
-    def perform_create(self, serializer):
-        serializer.save(organization=self.request.user.organization, created_by=self.request.user)
+    queryset = LeaveReason.objects.all()
 
-# 5. Balans tarixi
-class StudentBalanceHistoryViewSet(viewsets.ReadOnlyModelViewSet): # Faqat o'qish uchun
+
+class StudentBalanceHistoryViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentBalanceHistorySerializer
-    def get_queryset(self):
-        return StudentBalanceHistory.objects.filter(organization=self.request.user.organization)
 
-class StudentBalanceViewSet(viewsets.ModelViewSet):
+    def get_queryset(self):
+        user = self.request.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+        return StudentBalanceHistory.objects.filter(organization=org)
+
+
+class StudentBalanceViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentBalanceSerializer
-
-    def get_queryset(self):
-        # Faqat o'z tashkilotining balanslarini ko'radi
-        return StudentBalances.objects.filter(
-            organization=self.request.user.organization
-        ).select_related('student').order_by('-balance')
-
-    def perform_create(self, serializer):
-        # Balans yaratilayotganda avtomatik tashkilot va filialni biriktiramiz
-        serializer.save(
-            organization=self.request.user.organization,
-            branch=getattr(self.request.user, 'branch', None)
-        )
+    queryset = StudentBalances.objects.all()

@@ -1,5 +1,6 @@
 import re
 from rest_framework import serializers
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from academics.models import (
     Student, StudentGroup, StudentBalances, StudentTransaction,
     StudentGroupLeaves, StudentFreezes, LeaveReason,StudentPricing,StudentBalanceHistory
@@ -94,3 +95,35 @@ class StudentBalanceHistorySerializer(serializers.ModelSerializer):
         model = StudentBalanceHistory
         fields = '__all__'
         read_only_fields = ['organization']
+
+
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        # Token ichiga organization_id ni joylaymiz
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        token['organization_id'] = str(org.id) if org else None
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        # Login qilganda srazu response ichida ham qaytarish uchun
+        user = self.user
+        org = getattr(user, 'organization', None)
+        if not org and hasattr(user, 'employee') and user.employee:
+            org = getattr(user.employee, 'organization', None)
+
+        data['organization_id'] = str(org.id) if org else None
+        data['user_id'] = user.id
+        data['username'] = user.username
+
+        return data
