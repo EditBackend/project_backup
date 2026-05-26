@@ -17,12 +17,17 @@ from .serializers import (
 )
 
 
-# ─── AuditLog helper ─────────────────────────────────────────────
+# ─── AuditLog helper (To'g'rilangan variant) ─────────────────────────
 
 def _log(entity_type, entity_id, action, old_data, new_data, user):
     try:
-        # related_name "employee_profile" ga o'zgardi!
-        employee = getattr(user, 'employee_profile', None)
+        # 👇 Atribut xatoligi bermasligi uchun ikkala ehtimoliy nomni ham tekshirib olamiz
+        employee = None
+        if hasattr(user, 'employee') and user.employee:
+            employee = user.employee
+        elif hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
+
         AuditLog.objects.create(
             entity_type=entity_type,
             entity_id=entity_id,
@@ -33,9 +38,8 @@ def _log(entity_type, entity_id, action, old_data, new_data, user):
             performed_by_role=employee.position if employee else 'Tizim / Superadmin',
         )
     except Exception as e:
-        print(f"Audit log xatoligi: {e}")  # Xatolikni ko'rish uchun logga yozib qo'ygan ma'qul
+        print(f"Audit log xatoligi: {e}")
         pass
-
 
 # ════════════════════════════════════════════════════════════════
 #  REGISTRATION (Superadmin / Mijoz uchun)

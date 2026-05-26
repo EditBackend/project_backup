@@ -1,9 +1,8 @@
-
 from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Prefetch, F
 from django.shortcuts import get_object_or_404
-from django.apps import apps  # 🟢 APPS IMPORTI QO'SHILDI
+from django.apps import apps  # APPS IMPORTI QO'SHILDI
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
@@ -54,12 +53,12 @@ class MyTokenObtainPairView(TokenObtainPairView):
     """ Login qilinganda serializer'ni xavfsiz yashirin import qilish """
     @property
     def serializer_class(self):
-        # 🟢 LOCAL IMPORT - Circular import va xatolikni yo'q qiladi!
+        #LOCAL IMPORT - Circular import va xatolikni yo'q qiladi!
         from accounts.serializers import MyTokenObtainPairSerializer
         return MyTokenObtainPairSerializer
 
 
-# 🟢 UniversalBaseViewSet'dan voris olamiz - hamma organization xatolarini yopadi!
+#UniversalBaseViewSet'dan voris olamiz - hamma organization xatolarini yopadi!
 class StudentViewSet(UniversalBaseViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer

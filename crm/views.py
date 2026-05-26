@@ -314,7 +314,7 @@ from .serializers import (
 
 
 # =================================================================
-# 🌟 UNIVERSAL BASE VIEWSET — HAMMA ILОВАLAR UCHUN ASOSIY KLASS
+#  UNIVERSAL BASE VIEWSET — HAMMA ILОВАLAR UCHUN ASOSIY KLASS
 # =================================================================
 class UniversalBaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -340,7 +340,7 @@ class UniversalBaseViewSet(viewsets.ModelViewSet):
         if org:
             return org
 
-        # 3. Test holatida baribir topilmasa, bazadagi birinchisini ulaymiz
+        #Test holatida baribir topilmasa, bazadagi birinchisini ulaymiz
         try:
             Organization = apps.get_model('organizations', 'Organization')
             return Organization.objects.first()
@@ -359,23 +359,28 @@ class UniversalBaseViewSet(viewsets.ModelViewSet):
         org = self._get_organization_from_request()
         serializer.save(organization=org, created_by=self.request.user)
 
-    def perform_update(self, serializer):
-        org = self._get_organization_from_request()
-        model_class = serializer.Meta.model
-        kwargs = {"organization": org}
-        if hasattr(model_class, 'updated_by'):
-            kwargs["updated_by"] = self.request.user
-        serializer.save(**kwargs)
+        #  MANA SHU FUNKSIYANI BUTUNLAY ALMASHTIRING:
+        def perform_update(self, serializer):
+            org = self._get_organization_from_request()
 
+            #  TO'G'RI USUL: Model klassini serializer obyektining o'zidan xavfsiz olamiz
+            model_class = serializer.instance.__class__
+
+            kwargs = {"organization": org}
+            if hasattr(model_class, 'updated_by'):
+                kwargs["updated_by"] = self.request.user
+            serializer.save(**kwargs)
 
 # Eski ota-klass nomini saqlab qolamiz (yig'iqroq ko'rinishda)
 class BaseCRMViewSet(UniversalBaseViewSet):
     pass
 
 
-# ==========================================
+
+
 #   1. CRM PIPELINE BO'LIMLARI (NABORLAR)
-# ==========================================
+
+
 class CrmSectionViewSet(UniversalBaseViewSet):
     queryset = CrmSection.objects.all()
     serializer_class = CrmSectionSerializer
@@ -390,7 +395,7 @@ class CrmSectionViewSet(UniversalBaseViewSet):
 
 # ==========================================
 # 2. PIPELINE BOSHQARUVI
-# ==========================================
+# =========================================
 class PipelineViewSet(UniversalBaseViewSet):
     queryset = CRMPipeline.objects.all()
     serializer_class = CRMPipelineSerializer

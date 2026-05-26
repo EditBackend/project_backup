@@ -10,9 +10,9 @@ import re
 User = get_user_model()
 
 
-# =======================================================
+
+
 # 1. READ (O'QISH) UCHUN SERIALIZER
-# =======================================================
 class EmployeeSerializer(serializers.ModelSerializer):
     """GET, LIST, RETRIEVE uchun serializer"""
     full_name = serializers.ReadOnlyField(source='user.full_name')
@@ -105,42 +105,39 @@ class EmployeeCreateSerializer(serializers.Serializer):
                     "branch": "Tanlangan filial sizning tashkilotingizga tegishli emas."
                 })
         return attrs
+
     @transaction.atomic
     def create(self, validated_data):
-        # 1. So'rov yuborayotgan superadmin/menejerni aniqlaymiz (Xavfsizlik uchun)
         request = self.context.get('request')
         current_org = request.user.organization if request else None
 
-        # 2. Employee ma'lumotlarini ajratib olamiz
         position = validated_data.pop('position', '')
         photo = validated_data.pop('photo', None)
-
-        # 3. User ma'lumotlarini tayyorlaymiz
         password = validated_data.pop('password')
 
-        # Odatda telefon raqam orqali login qilinadi, shuning uchun username=phone qilamiz
         validated_data['username'] = validated_data['phone']
-        validated_data['organization'] = current_org  # 🔥 Frontenddan emas, backenddan olindi!
+        validated_data['organization'] = current_org
         validated_data['role'] = 'EMPLOYEE'
 
-        # 4. Userni yaratamiz
         user = User(**validated_data)
         user.set_password(password)
         user.save()
 
-        # 🔥 DIQQAT: User saqlanganda SIGNAL ishlab avtomatik Employee profil yaratadi!
-        # Shuning uchun Employee.objects.create() QILMAYMIZ!
-        # Shunchaki yaratilgan profilni topib, ustiga position va photo yozib qoyamiz:
+        # 👇 TO'G'RILANDI: employee_profile o'rniga xavfsiz hasattr bilan employee'ni tekshiramiz
+        if hasattr(user, 'employee') and user.employee:
+            employee = user.employee
+        elif hasattr(user, 'employee_profile') and user.employee_profile:
+            employee = user.employee_profile
+        else:
+            # Agar signal ishlamay qolsa, profilni qo'lda yaratib ketamiz (Krash bo'lmasligi uchun)
+            employee = Employee.objects.create(user=user)
 
-        employee = user.employee_profile
         employee.position = position
         if photo:
             employee.photo = photo
         employee.save()
 
         return employee
-
-
 # =======================================================
 # 3. UPDATE (YANGILASH) UCHUN SERIALIZER
 # =======================================================
