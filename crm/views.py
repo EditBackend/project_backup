@@ -316,6 +316,9 @@ from .serializers import (
 # =================================================================
 #  UNIVERSAL BASE VIEWSET — HAMMA ILОВАLAR UCHUN ASOSIY KLASS
 # =================================================================
+# =================================================================
+# 🌟 UNIVERSAL BASE VIEWSET — MUKAMMAL VARIANTI (Tashkilot xatosiz)
+# =================================================================
 class UniversalBaseViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
@@ -324,7 +327,19 @@ class UniversalBaseViewSet(viewsets.ModelViewSet):
         request = self.request
         user = request.user
 
-        # 1. Frontendchi so'rovda organization yuborgan bo'lsa
+        # 1. Agar foydalanuvchining o'ziga to'g'ridan-to'g'ri organization ulangan bo'lsa
+        if hasattr(user, 'organization') and user.organization:
+            return user.organization
+
+        # 2. Agar foydalanuvchi xodim (Employee) bo'lsa, uning profilidan tashkilotni olamiz
+        # Boyagi model mosligi uchun har ikkala ehtimoliy related_name ni tekshiramiz
+        if hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+            return user.employee.organization
+        if hasattr(user, 'employee_profile') and user.employee_profile and getattr(user.employee_profile,
+                                                                                   'organization', None):
+            return user.employee_profile.organization
+
+        # 3. Agar foydalanuvchida topilmasa, frontendchi so'rovda organization_id yuborganmi tekshiramiz
         org_id = request.data.get('organization') or request.data.get('organization_id')
         if org_id:
             try:
@@ -333,22 +348,20 @@ class UniversalBaseViewSet(viewsets.ModelViewSet):
             except Exception:
                 pass
 
-        # 2. Agar yubormagan bo'lsa, user profilidan qidiramiz
-        org = getattr(user, 'organization', None)
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-        if org:
-            return org
-
-        #Test holatida baribir topilmasa, bazadagi birinchisini ulaymiz
+        # 4. Agar superadmin bo'lsa va hali hech qayerga ulanmagan bo'lsa, bazadagi birinchi tashkilotni ulaymiz
         try:
             Organization = apps.get_model('organizations', 'Organization')
-            return Organization.objects.first()
+            first_org = Organization.objects.first()
+            if first_org:
+                return first_org
         except Exception:
-            return None
+            pass
+
+        return None
 
     def get_queryset(self):
         org = self._get_organization_from_request()
+        # Agar superadmin bo'lsa yoki tashkilot topilmasa hamma narsani ko'rsatadi
         if self.request.user.is_superuser or not org:
             return self.queryset.all().order_by('-created_at')
         return self.queryset.filter(
@@ -357,30 +370,36 @@ class UniversalBaseViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         org = self._get_organization_from_request()
+
+        # ️ BAZADA INTEGRITY ERROR BO'LMASLIGI UCHUN TEKSHIRUV:
+        if not org:
+            raise serializers.ValidationError({
+                "organization": "Tizimda siz tegishli bo'lgan tashkilot aniqlanmadi. Profilingizni tekshiring."
+            })
+
         serializer.save(organization=org, created_by=self.request.user)
 
-        #  MANA SHU FUNKSIYANI BUTUNLAY ALMASHTIRING:
-        def perform_update(self, serializer):
-            org = self._get_organization_from_request()
+    def perform_update(self, serializer):
+        org = self._get_organization_from_request()
+        model_class = serializer.instance.__class__
 
-            #  TO'G'RI USUL: Model klassini serializer obyektining o'zidan xavfsiz olamiz
-            model_class = serializer.instance.__class__
+        kwargs = {}
+        # Agar modelda organization maydoni bo'lsa va u bo'sh bo'lsa, yangilaymiz
+        if hasattr(model_class, 'organization') and org:
+            kwargs["organization"] = org
 
-            kwargs = {"organization": org}
-            if hasattr(model_class, 'updated_by'):
-                kwargs["updated_by"] = self.request.user
-            serializer.save(**kwargs)
+        if hasattr(model_class, 'updated_by'):
+            kwargs["updated_by"] = self.request.user
+
+        serializer.save(**kwargs)
+
+
+
 
 # Eski ota-klass nomini saqlab qolamiz (yig'iqroq ko'rinishda)
 class BaseCRMViewSet(UniversalBaseViewSet):
     pass
-
-
-
-
 #   1. CRM PIPELINE BO'LIMLARI (NABORLAR)
-
-
 class CrmSectionViewSet(UniversalBaseViewSet):
     queryset = CrmSection.objects.all()
     serializer_class = CrmSectionSerializer
@@ -393,9 +412,8 @@ class CrmSectionViewSet(UniversalBaseViewSet):
         return queryset.order_by('created_at')
 
 
-# ==========================================
+
 # 2. PIPELINE BOSHQARUVI
-# =========================================
 class PipelineViewSet(UniversalBaseViewSet):
     queryset = CRMPipeline.objects.all()
     serializer_class = CRMPipelineSerializer
@@ -410,16 +428,10 @@ class CRMLeadViewSet(UniversalBaseViewSet):
     queryset = CRMLead.objects.all()
     serializer_class = CRMLeadSerializer
 
+    #  Eski murakkab get_object() ni olib tashlang va o'rniga DRF'ning o'ziga qo'yib bering:
     def get_object(self):
-        queryset = CRMLead.objects.all()
-        lookup_url_kwarg = self.lookup_url_kwarg or self.lookup_field
-        filter_kwargs = {self.lookup_field: self.kwargs[lookup_url_kwarg]}
-
-        from django.shortcuts import get_object_or_404
-        obj = get_object_or_404(queryset, **filter_kwargs)
-
-        self.check_object_permissions(self.request, obj)
-        return obj
+        # DRF o'zi UUID bo'yicha bazadan chiroyli topib beradi, ruxsatlarni ham tekshiradi
+        return super().get_object()
 
     def perform_update(self, serializer):
         old_instance = self.get_object()

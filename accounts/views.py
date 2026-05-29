@@ -41,9 +41,10 @@ def _log(entity_type, entity_id, action, old_data, new_data, user):
         print(f"Audit log xatoligi: {e}")
         pass
 
-# ════════════════════════════════════════════════════════════════
+
+
 #  REGISTRATION (Superadmin / Mijoz uchun)
-# ════════════════════════════════════════════════════════════════
+
 
 @extend_schema(tags=["Auth - Mijoz ro'yxatdan o'tishi"])
 @api_view(['POST'])

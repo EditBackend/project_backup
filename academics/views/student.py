@@ -2,7 +2,7 @@ from decimal import Decimal, InvalidOperation
 from django.db import transaction
 from django.db.models import Prefetch, F
 from django.shortcuts import get_object_or_404
-from django.apps import apps  # APPS IMPORTI QO'SHILDI
+from django.apps import apps
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
@@ -26,16 +26,27 @@ from academics.serializers.student import (
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
 
-def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=None):
-    # Foydalanuvchining tashkilotini xavfsiz olish
-    org = getattr(request.user, 'organization', None)
-    if not org and hasattr(request.user, 'employee') and request.user.employee:
-        org = getattr(request.user.employee, 'organization', None)
+# Tashkilotni har qanday foydalanuvchidan (Superadmin yoki Employee) xavfsiz olish
+def _get_clean_org(user):
+    if hasattr(user, 'organization') and user.organization:
+        return user.organization
+    if hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+        return user.employee.organization
+    if hasattr(user, 'employee_profile') and user.employee_profile and getattr(user.employee_profile, 'organization', None):
+        return user.employee_profile.organization
+    try:
+        Organization = apps.get_model('organizations', 'Organization')
+        return Organization.objects.first()
+    except Exception:
+        return None
 
+def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=None):
+    user = request.user
+    org = _get_clean_org(user)
     AuditLog.objects.create(
         organization=org,
-        branch=getattr(request.user, 'branch', None),
-        created_by=request.user,
+        branch=getattr(user, 'branch', None),
+        created_by=user,
         entity_type=entity_type,
         entity_id=entity_id,
         action=action,
@@ -43,33 +54,15 @@ def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=
         new_data=new_data
     )
 
-
-class StudentGroupLeavesViewSet(viewsets.ModelViewSet):
-    queryset = StudentGroupLeaves.objects.all().order_by('-leave_date')
-    serializer_class = StudentGroupLeavesSerializer
-
-
-class MyTokenObtainPairView(TokenObtainPairView):
-    """ Login qilinganda serializer'ni xavfsiz yashirin import qilish """
-    @property
-    def serializer_class(self):
-        #LOCAL IMPORT - Circular import va xatolikni yo'q qiladi!
-        from accounts.serializers import MyTokenObtainPairSerializer
-        return MyTokenObtainPairSerializer
-
-
-#UniversalBaseViewSet'dan voris olamiz - hamma organization xatolarini yopadi!
-class StudentViewSet(UniversalBaseViewSet):
+# 1. ASOSIY TALABALAR VIEWSETI
+class StudentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = StudentSerializer
     queryset = Student.objects.all()
 
     def get_queryset(self):
-        # request.user'dan tashkilotni xavfsiz topish
         user = self.request.user
-        org = getattr(user, 'organization', None)
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
+        org = _get_clean_org(user)
 
         if user.is_superuser or not org:
             return Student.objects.all().select_related('balance_info').order_by('-created_at')
@@ -77,9 +70,11 @@ class StudentViewSet(UniversalBaseViewSet):
 
     def perform_create(self, serializer):
         user = self.request.user
-        org = getattr(user, 'organization', None)
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
+        org = _get_clean_org(user)
+
+        if not org:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "Siz biror bir tashkilotga biriktirilmagansiz!"})
 
         with transaction.atomic():
             student = serializer.save(
@@ -87,7 +82,6 @@ class StudentViewSet(UniversalBaseViewSet):
                 branch=getattr(user, 'branch', None),
                 created_by=user
             )
-            # Avtomatik balans ochish
             StudentBalances.objects.get_or_create(
                 student=student,
                 defaults={
@@ -97,28 +91,12 @@ class StudentViewSet(UniversalBaseViewSet):
                 }
             )
 
-        self._log_audit(
+        _log_audit(
+            self.request,
             entity_type=AuditEntityType.STUDENT,
             entity_id=student.id,
             action=AuditAction.CREATE,
             new_data={"name": student.full_name, "phone": student.phone_number}
-        )
-
-    def _log_audit(self, entity_type, entity_id, action, old_data=None, new_data=None):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        AuditLog.objects.create(
-            organization=org,
-            branch=getattr(user, 'branch', None),
-            created_by=user,
-            entity_type=entity_type,
-            entity_id=entity_id,
-            action=action,
-            old_data=old_data,
-            new_data=new_data
         )
 
     @action(detail=True, methods=['post'], url_path='add-to-group')
@@ -126,10 +104,7 @@ class StudentViewSet(UniversalBaseViewSet):
         student = self.get_object()
         group_id = request.data.get('group_id')
         user = request.user
-
-        org = getattr(user, 'organization', None)
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
+        org = _get_clean_org(user)
 
         if not group_id:
             return Response({"error": "group_id majburiy maydon!"}, status=status.HTTP_400_BAD_REQUEST)
@@ -144,7 +119,6 @@ class StudentViewSet(UniversalBaseViewSet):
             if already_exists:
                 return Response({"message": "Talaba ushbu guruhda allaqachon bor!"}, status=status.HTTP_400_BAD_REQUEST)
 
-            from django.utils import timezone
             StudentGroup.objects.create(
                 student=student,
                 group_id=group_id,
@@ -157,6 +131,26 @@ class StudentViewSet(UniversalBaseViewSet):
             return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
+# 2 ADASHIB O'CHIB KETGAN VA URLS.PY QIDIRAYOTGAN KLASS (XAVFSIZLASHTIRILDI)
+class StudentGroupLeavesViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    # Agar seryalizatoringiz nomi boshqacha bo'lsa, o'zingiznikiga moslab qo'ying:
+    # serializer_class = StudentGroupLeavesSerializer
+
+    def get_queryset(self):
+        org = _get_clean_org(self.request.user)
+        # Agar modelingiz nomi xato bo'lsa, o'zingizning StudentGroupLeaves modeliga qarang
+        return StudentGroupLeaves.objects.filter(organization=org).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        org = _get_clean_org(self.request.user)
+        leave = serializer.save(
+            organization=org,
+            branch=getattr(self.request.user, 'branch', None),
+            created_by=self.request.user
+        )
+        _log_audit(self.request, AuditEntityType.STUDENT, leave.id, AuditAction.UPDATE,
+                   new_data={"action": "Talaba guruhdan chiqdi/chetlashtirildi"})
 class TalabalarMalumotView(APIView):
     permission_classes = [IsAuthenticated]
 

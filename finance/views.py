@@ -16,10 +16,24 @@ from .serializers import (
 )
 # Talaba to'lovlari (Kirim) ni hisoblash uchun Academics dan import qilamiz
 from academics.models import StudentTransaction
+# Tashkilotni har qanday foydalanuvchidan (Superadmin yoki Employee) xavfsiz olish helper funktsiyasi
+def _get_clean_org(user):
+    if hasattr(user, 'organization') and user.organization:
+        return user.organization
+    if hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+        return user.employee.organization
+    if hasattr(user, 'employee_profile') and user.employee_profile and getattr(user.employee_profile, 'organization', None):
+        return user.employee_profile.organization
+    try:
+        Organization = apps.get_model('organizations', 'Organization')
+        return Organization.objects.first()
+    except Exception:
+        return None
 
 def _log_audit(request, entity_type, entity_id, action, new_data=None):
+    org = _get_clean_org(request.user)
     AuditLog.objects.create(
-        organization=request.user.organization,
+        organization=org,
         branch=getattr(request.user, 'branch', None),
         created_by=request.user,
         entity_type=entity_type,
@@ -34,13 +48,18 @@ class BaseFinanceViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend]
 
     def get_queryset(self):
-        if not self.request.user.organization:
+        org = _get_clean_org(self.request.user)
+        if not org:
             return self.queryset.none()
-        return self.queryset.filter(organization=self.request.user.organization).order_by('-created_at')
+        return self.queryset.filter(organization=org).order_by('-created_at')
 
     def perform_create(self, serializer):
+        org = _get_clean_org(self.request.user)
+        if not org:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"detail": "Siz biror bir tashkilotga biriktirilmagansiz!"})
         return serializer.save(
-            organization=self.request.user.organization,
+            organization=org,
             branch=getattr(self.request.user, 'branch', None),
             created_by=self.request.user
         )
@@ -49,23 +68,6 @@ class BaseFinanceViewSet(viewsets.ModelViewSet):
 class ExpenseCategoryViewSet(BaseFinanceViewSet):
     queryset = ExpenseCategory.objects.all()
     serializer_class = ExpenseCategorySerializer
-
-    def perform_create(self, serializer):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
-
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        # Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
-        if not org:
-            try:
-                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
-                org = Organization.objects.first()
-            except Exception:
-                pass
-
-        serializer.save(organization=org, created_by=user)
 
 class ExpenseViewSet(BaseFinanceViewSet):
     queryset = Expense.objects.select_related('category').all()
@@ -82,42 +84,10 @@ class BonusViewSet(BaseFinanceViewSet):
     queryset = Bonus.objects.all()
     serializer_class = BonusSerializer
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
-
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        # 🌟 Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
-        if not org:
-            try:
-                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
-                org = Organization.objects.first()
-            except Exception:
-                pass
-
-        serializer.save(organization=org, created_by=user)
 class FineViewSet(BaseFinanceViewSet):
     queryset = Fine.objects.all()
     serializer_class = FineSerializer
 
-    def perform_create(self, serializer):
-        user = self.request.user
-        org = getattr(user, 'organization', None)
-
-        if not org and hasattr(user, 'employee') and user.employee:
-            org = getattr(user.employee, 'organization', None)
-
-        # 🌟 Agar test userda tashkilot bo'lmasa, bazadagi birinchisini ulaymiz
-        if not org:
-            try:
-                Organization = apps.get_model('organizations', 'Organization')  # Tashkilot modelingiz nomi
-                org = Organization.objects.first()
-            except Exception:
-                pass
-
-        serializer.save(organization=org, created_by=user)
 class EmployeeSalaryPaymentViewSet(BaseFinanceViewSet):
     queryset = EmployeeSalaryPayment.objects.all()
     serializer_class = EmployeeSalaryPaymentSerializer
@@ -128,31 +98,27 @@ class EmployeeSalaryPaymentViewSet(BaseFinanceViewSet):
                    {"action": "Xodim maoshi", "amount": str(payment.amount)})
 
 # =================================================================
-# SOF FOYDA VA UMUMIY MOLIYAVIY HISOBOT (JONLI HISOBLASH)
+# SOF FOYDA VA UMUMIY MOLIYAVIY HISOBOT
 # =================================================================
 class FinancialReportAPIView(APIView):
-    """ Kassa hisoboti: Tushumlar, Chiqimlar va Sof Foyda """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        org = request.user.organization
+        org = _get_clean_org(request.user)
         start_date = request.GET.get('start_date', date.today().replace(day=1).isoformat())
         end_date = request.GET.get('end_date', date.today().isoformat())
 
-        # 1. JAMI TUSHUMLAR (Talabalar qilgan to'lovlar)
         total_income = StudentTransaction.objects.filter(
             organization=org,
             transaction_type='payment',
             transaction_date__date__range=[start_date, end_date]
         ).aggregate(total=Sum('amount'))['total'] or 0
 
-        # 2. JAMI XARAJATLAR (Arenda, svet, qog'oz va h.k.)
         total_expense = Expense.objects.filter(
             organization=org,
             expense_date__range=[start_date, end_date]
         ).aggregate(total=Sum('amount'))['total'] or 0
 
-        # 3. XODIMLAR MAOSHLARI (O'qituvchilar va Boshqa xodimlar)
         staff_salary = EmployeeSalaryPayment.objects.filter(
             organization=org, payment_date__range=[start_date, end_date]
         ).aggregate(total=Sum('amount'))['total'] or 0
@@ -162,61 +128,38 @@ class FinancialReportAPIView(APIView):
 
         return Response({
             "period": f"{start_date} dan {end_date} gacha",
-            "income": {
-                "student_payments": float(total_income),
-                "total_income": float(total_income)
-            },
-            "outcomes": {
-                "expenses": float(total_expense),
-                "salaries": float(staff_salary),
-                "total_outcomes": float(total_outcomes)
-            },
+            "income": {"student_payments": float(total_income), "total_income": float(total_income)},
+            "outcomes": {"expenses": float(total_expense), "salaries": float(staff_salary), "total_outcomes": float(total_outcomes)},
             "net_profit": float(net_profit),
             "status": "Foyda" if net_profit >= 0 else "Zarar"
         })
 
-class CashboxViewSet(viewsets.ModelViewSet):
+class CashboxViewSet(BaseFinanceViewSet): # BaseFinanceViewSet ga o'tkazdik - ortiqcha kod qisqardi
+    queryset = Cashbox.objects.all()
     serializer_class = CashboxSerializer
-    permission_classes = [IsAuthenticated]
     filter_backends = [filters.SearchFilter]
     search_fields = ['name']
-
-    def get_queryset(self):
-        user = self.request.user
-        if not user.organization:
-            return Cashbox.objects.none()
-        return Cashbox.objects.filter(organization=user.organization).order_by('-created_at')
-
-    def perform_create(self, serializer):
-        # Kassa yaratilganda avtomatik tashkilot va filialni bog'laymiz
-        serializer.save(
-            organization=self.request.user.organization,
-            branch=getattr(self.request.user, 'branch', None),
-            created_by=self.request.user
-        )
-
 
 class StudentPaymentAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # To'lovlar ro'yxatini ko'rish (Frontendchi 404 degan GET so'rovi uchun)
+        org = _get_clean_org(request.user)
         payments = StudentTransaction.objects.filter(
-            organization=request.user.organization,
+            organization=org,
             transaction_type='payment'
         ).order_by('-created_at')
-        # Bu yerda serializer bo'lsa serializer_class dan o'tkazing, yo'q bo'lsa oddiy list:
         return Response({"status": "Success", "message": "To'lovlar ro'yxati joyi"})
 
     def post(self, request):
-        student_id = request.data.get('student')  # yoki student_id
+        org = _get_clean_org(request.user)
+        student_id = request.data.get('student')
         amount = request.data.get('amount')
 
         if not student_id or not amount:
             return Response({"error": "Talaba va summa yuborilishi shart!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 🔥 DUBLE TO'LOVNING OLDINI OLISH (IDEMPOTENCY):
-        # Oxirgi 1 daqiqa ichida aynan shu talaba tomonidan aynan shu summadagi to'lov bo'lganmi?
+        #  DUBLE TO'LOVNING OLDINI OLISH (ASLI KO'RINISHDA QOLDI):
         bir_daqiqa_oldin = timezone.now() - timedelta(minutes=1)
         double_check = StudentTransaction.objects.filter(
             student_id=student_id,
@@ -230,18 +173,13 @@ class StudentPaymentAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Agar hammasi yaxshi bo'lsa, to'lovni yaratamiz
         payment = StudentTransaction.objects.create(
-            organization=request.user.organization,
+            organization=org,
             student_id=student_id,
             amount=amount,
-            transaction_type='payment',
-            # qolgan kerakli maydonlarni ham yozing (comment, payment_method va h.k.)
+            transaction_type='payment'
         )
-
-        return Response({"message": "To'lov muvaffaqiyatli qabul qilindi", "id": payment.id},
-                        status=status.HTTP_201_CREATED)
-
+        return Response({"message": "To'lov muvaffaqiyatli qabul qilindi", "id": payment.id}, status=status.HTTP_201_CREATED)
 # from rest_framework import viewsets
 # from rest_framework.decorators import action
 # from rest_framework.response import Response
