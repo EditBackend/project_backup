@@ -84,7 +84,7 @@ urlpatterns = [
     path('api/v1/accounts/', include("accounts.urls")),
     path('api/v1/audit/', include("audit.urls")),
     path('api/v1/communication/', include("communication.urls")),
-    path('api/v1/crm/', include("crm.urls")),
+    path('api/v1/crm/', include('crm.urls')),  # Bu yerda bitta crm/ bo'lishi kifoya
     path('api/v1/finance/', include("finance.urls")),
     path('api/v1/organizations/', include("organizations.urls")),
     path('api/v1/tasks/', include("tasks.urls")),
