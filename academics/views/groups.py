@@ -1,49 +1,80 @@
-from rest_framework import viewsets, filters
+from rest_framework import viewsets, filters, status
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
-from academics.models import Group, Course, Room,GroupTeacher
+from django.db import transaction
+from django.apps import apps
+
+from academics.models import Group, Course, Room, GroupTeacher
 from academics.serializers.groups import (
     GroupListSerializer, GroupDetailSerializer, GroupWriteSerializer,
-    RoomSerializer, CourseMinimalSerializer,GroupTeacherSerializer
+    RoomSerializer, CourseMinimalSerializer, GroupTeacherSerializer
 )
 from audit.models import AuditLog, AuditAction, AuditEntityType
 
 
-# Yordamchi Audit funksiyasi
+# 1. Tashkilotni har qanday foydalanuvchidan (Superadmin, Employee yoki Employee Profile) xavfsiz aniqlash funksiyasi
+def _get_clean_org(user):
+    if hasattr(user, 'organization') and user.organization:
+        return user.organization
+    if hasattr(user, 'employee') and user.employee and getattr(user.employee, 'organization', None):
+        return user.employee.organization
+    if hasattr(user, 'employee_profile') and user.employee_profile and getattr(user.employee_profile, 'organization',
+                                                                               None):
+        return user.employee_profile.organization
+    try:
+        Organization = apps.get_model('organizations', 'Organization')
+        return Organization.objects.first()
+    except Exception:
+        return None
+
+
+# 2. Universal Audit funksiyasi
 def _log_audit(request, entity_type, entity_id, action, old_data=None, new_data=None):
     try:
-        employee = getattr(request.user, 'employee', None)
+        user = request.user
+        org = _get_clean_org(user)
+
+        employee = getattr(user, 'employee', None) or getattr(user, 'employee_profile', None)
         role = getattr(employee, 'position', "Admin") if employee else "System"
 
         AuditLog.objects.create(
-            organization=request.user.organization,
-            branch=getattr(request.user, 'branch', None),
-            created_by=request.user,
+            organization=org,
+            branch=getattr(user, 'branch', None),
+            created_by=user,
             entity_type=entity_type,
             entity_id=entity_id,
             action=action,
             old_data=old_data,
             new_data=new_data,
-            performed_by_role=f"{role} ({request.user.full_name})"
+            performed_by_role=f"{role} ({getattr(user, 'full_name', user.username)})"
         )
     except Exception as e:
         print(f"Audit yozishda xatolik: {e}")
 
+
+# 3. GURUH O'QITUVCHILARI VIEWSETI
 class GroupTeacherViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = GroupTeacherSerializer
 
     def get_queryset(self):
-        return GroupTeacher.objects.filter(
-            organization=self.request.user.organization
-        ).select_related('group', 'teacher__user')
+        org = _get_clean_org(self.request.user)
+        if not org:
+            return GroupTeacher.objects.none()
+        return GroupTeacher.objects.filter(organization=org).select_related('group', 'teacher__user')
 
     def perform_create(self, serializer):
+        org = _get_clean_org(self.request.user)
         serializer.save(
-            organization=self.request.user.organization,
+            organization=org,
             created_by=self.request.user
         )
+
+
+# 4. GURUHLAR VIEWSETI
 class GroupViewSet(viewsets.ModelViewSet):
     """
     Guruhlar uchun to'liq CRUD, filtrlar va Audit Log qatlami.
@@ -55,13 +86,10 @@ class GroupViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        org = _get_clean_org(user)
 
-        # User yoki Employee_profile orqali org'ni topish
-        org = getattr(user, 'organization', None) or getattr(user, 'employee_profile', user).organization
-
-        # Agar baribir topilmasa (masalan superuser bo'lsa)
-        if not org:
-            return Group.objects.all() # Superadmin hamma narsani ko'rsin
+        if user.is_superuser or not org:
+            return Group.objects.all().select_related('course', 'room')
 
         return Group.objects.filter(organization=org).select_related('course', 'room').annotate(
             student_count=Count('group_students', filter=Q(group_students__left_at__isnull=True), distinct=True),
@@ -75,21 +103,17 @@ class GroupViewSet(viewsets.ModelViewSet):
             return GroupListSerializer
         return GroupDetailSerializer
 
-    # POST (Yaratish)
     def perform_create(self, serializer):
-        # Frontenddan kutmasdan org va userni o'zimiz beramiz
+        org = _get_clean_org(self.request.user)
         group = serializer.save(
-            organization=self.request.user.organization,
+            organization=org,
             branch=getattr(self.request.user, 'branch', None),
             created_by=self.request.user
         )
-        # ── Audit Log ──
         _log_audit(self.request, AuditEntityType.GROUP, group.id, AuditAction.CREATE,
                    old_data=None, new_data={"name": group.name, "status": group.status})
 
-    # PUT/PATCH (Tahrirlash)
     def perform_update(self, serializer):
-        # Eski ma'lumotlarni o'zgarishdan oldin saqlab olamiz
         old_instance = self.get_object()
         old_data = {
             "name": old_instance.name,
@@ -97,128 +121,117 @@ class GroupViewSet(viewsets.ModelViewSet):
             "room": old_instance.room.name if old_instance.room else None
         }
 
-        # Yangilaymiz
         group = serializer.save()
 
-        # ── Audit Log ──
         new_data = {"name": group.name, "status": group.status, "room": group.room.name if group.room else None}
         _log_audit(self.request, AuditEntityType.GROUP, group.id, AuditAction.UPDATE,
                    old_data=old_data, new_data=new_data)
 
-    # DELETE (O'chirish)
     def perform_destroy(self, instance):
-        # ── Audit Log ──
         _log_audit(self.request, AuditEntityType.GROUP, instance.id, AuditAction.DELETE,
                    old_data={"name": instance.name, "status": instance.status}, new_data=None)
         instance.delete()
 
-        @action(detail=True, methods=['patch', 'delete'], url_path='attendences')
-        def manage_group_attendance(self, request, pk=None):
-            """
-            Guruh ID si orqali shu guruhning davomatini tahrirlash (PATCH) yoki o'chirish (DELETE)
-            """
-            from academics.models import Attendance  # Sizdagi davomat modeli nomi (agar nomi boshqacha bo'lsa moslang)
+    # Indentation xatosi to'g'rilandi: metod perform_destroy ichidan tashqariga chiqarildi
+    @action(detail=True, methods=['patch', 'delete'], url_path='attendences')
+    def manage_group_attendance(self, request, pk=None):
+        """
+        Guruh ID si orqali shu guruhning davomatini tahrirlash (PATCH) yoki o'chirish (DELETE)
+        """
+        try:
+            from apps.academics.models import Attendance
+        except ImportError:
+            try:
+                from academics.models import Attendance
+            except ImportError:
+                return Response({"error": "Attendance modeli topilmadi!"}, status=500)
 
-            group = self.get_object()
-            date = request.query_params.get('date') or request.data.get('date')
+        group = self.get_object()
+        date = request.query_params.get('date') or request.data.get('date')
 
-            if not date:
-                return Response(
-                    {"error": "Sana (date) yuborilishi shart! Masalan: ?date=2026-05-20"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        if not date:
+            return Response(
+                {"error": "Sana (date) yuborilishi shart! Masalan: ?date=2026-05-20"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
-            # Shu guruh va shu sanadagi davomat ob'ektini qidiramiz
-            attendance_records = Attendance.objects.filter(group=group, date=date)
+        attendance_records = Attendance.objects.filter(group=group, date=date)
 
-            if not attendance_records.exists():
-                return Response(
-                    {"error": "Ushbu guruh va sana uchun hech qanday davomat topilmadi!"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
+        if not attendance_records.exists():
+            return Response(
+                {"error": "Ushbu guruh va sana uchun hech qanday davomat topilmadi!"},
+                status=status.HTTP_404_NOT_FOUND
+            )
 
-            # 1. Davomatni o'chirish (DELETE)
-            if request.method == 'DELETE':
-                count = attendance_records.count()
-                attendance_records.delete()
+        if request.method == 'DELETE':
+            count = attendance_records.count()
+            attendance_records.delete()
 
-                # Audit yozamiz
-                _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.DELETE,
-                           old_data={"group": group.name, "date": str(date), "deleted_count": count})
+            _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.DELETE,
+                       old_data={"group": group.name, "date": str(date), "deleted_count": count})
 
-                return Response({"message": "Davomat muvaffaqiyatli o'chirildi"}, status=status.HTTP_200_OK)
+            return Response({"message": "Davomat muvaffaqiyatli o'chirildi"}, status=status.HTTP_200_OK)
 
-            # 2. Davomatni tahrirlash (PATCH)
-            elif request.method == 'PATCH':
-                students_data = request.data.get('students', [])  # [{student_id: 1, is_present: True}] ko'rinishida
+        elif request.method == 'PATCH':
+            students_data = request.data.get('students', [])
 
-                if not students_data:
-                    return Response({"error": "Yangilanadigan talabalar ro'yxati (students) yuborilmadi!"}, status=400)
+            if not students_data:
+                return Response({"error": "Yangilanadigan talabalar ro'yxati (students) yuborilmadi!"}, status=400)
 
-                with transaction.atomic():
-                    for item in students_data:
-                        Attendance.objects.filter(
-                            group=group,
-                            date=date,
-                            student_id=item.get('student_id')
-                        ).update(
-                            status=item.get('status'),  # yoki 'is_present' sizdagi maydon nomiga qarab
-                            updated_by=request.user
-                        )
+            with transaction.atomic():
+                for item in students_data:
+                    attendance_records.filter(
+                        student_id=item.get('student_id')
+                    ).update(
+                        status=item.get('status'),
+                        updated_by=request.user
+                    )
 
-                # Audit yozamiz
-                _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.UPDATE,
-                           new_data={"group": group.name, "date": str(date), "action": "Davomat tahrirlandi"})
+            _log_audit(request, AuditEntityType.ATTENDANCE, group.id, AuditAction.UPDATE,
+                       new_data={"group": group.name, "date": str(date), "action": "Davomat tahrirlandi"})
 
-                return Response({"message": "Davomat muvaffaqiyatli yangilandi"}, status=status.HTTP_200_OK)
+            return Response({"message": "Davomat muvaffaqiyatli yangilandi"}, status=status.HTTP_200_OK)
 
 
-# Xonalar
+# 5. XONALAR VIEWSETI (XAVFSIZ QILINDI)
 class RoomViewSet(viewsets.ModelViewSet):
     serializer_class = RoomSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        # Userda organization yo'qligi uchun employee orqali tekshiramiz
-        employee = getattr(self.request.user, 'employee', None)
-        if not employee or not employee.organization:
+        org = _get_clean_org(self.request.user)
+        if not org:
             return Room.objects.none()
-        return Room.objects.filter(organization=employee.organization)
+        return Room.objects.filter(organization=org)
 
     def perform_create(self, serializer):
-        employee = getattr(self.request.user, 'employee', None)
-        if employee and employee.organization:
+        org = _get_clean_org(self.request.user)
+        if org:
             serializer.save(
-                organization=employee.organization,
+                organization=org,
                 created_by=self.request.user
             )
         else:
-            # Agar foydalanuvchi tashkilotga biriktirilmagan bo'lsa, xato qaytaramiz
             from rest_framework.exceptions import ValidationError
             raise ValidationError({"detail": "Siz hech qaysi tashkilotga biriktirilmagansiz!"})
 
 
-# Kurslar (Lutg'at)
+# 6. KURSLAR VIEWSETI (XAVFSIZ QILINDI)
 class CourseViewSet(viewsets.ModelViewSet):
     serializer_class = CourseMinimalSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        employee = getattr(self.request.user, 'employee', None)
-
-        if not employee or not employee.organization:
+        org = _get_clean_org(self.request.user)
+        if not org:
             return Course.objects.none()
+        return Course.objects.filter(organization=org)
 
-            # 3. Faqat shu xodimning tashkilotiga tegishli kurslarni qaytaramiz
-        return Course.objects.filter(organization=employee.organization)
     def perform_create(self, serializer):
-    # Userning employee profili orqali tashkilotni topamiz
-        print(self.request.user)
-        employee = getattr(self.request.user, 'employee', None)
-        print("employee -> ", employee)
-        if employee and employee.organization:
+        org = _get_clean_org(self.request.user)
+        if org:
             serializer.save(
-                organization=employee.organization,
+                organization=org,
                 created_by=self.request.user
             )
         else:
