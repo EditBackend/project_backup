@@ -1,6 +1,6 @@
 from django.urls import path
 
-# 🔥 KLASS ASLIDA PipelineViewSet BO'LGANI UCHUN UNI 'as' BILAN IMPORT QILAMIZ
+#  KLASS ASLIDA PipelineViewSet BO'LGANI UCHUN UNI 'as' BILAN IMPORT QILAMIZ
 
 from .views import (
 
